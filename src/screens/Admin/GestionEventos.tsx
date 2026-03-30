@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import "../../styles/GestionEventos.css";
 import NavAdmin from "../components/NavAdmin";
 import {
   Plus, Pencil, Trash2, Power, PowerOff, X,
-  MapPin, Users, Clock, Eye, Search, Calendar, Info, Lock,
+  MapPin, Users, Clock, Eye, Search, Calendar, Info, Lock, FileDown,
 } from "lucide-react";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
 import ImageUploader from "../../components/ImageUploader";
 import { API_URL } from "../../api/config";
+import { exportEventosPDF } from "../../utils/pdfExport";
 
 /* ═══════════ INTERFACES ═══════════ */
 
@@ -31,9 +33,6 @@ interface Evento {
   image?: string;
   creadoPor?: { _id: string; nombre: string; email: string } | string;
 }
-
-interface UsuarioInv { _id: string; nombre?: string; name?: string; email?: string; correo?: string; }
-interface Invitacion  { _id: string; usuario: UsuarioInv | string | null; estadoInvitacion: string; estadoAsistencia: string; }
 
 interface FormData {
   titulo: string; descripcion: string;
@@ -230,25 +229,12 @@ const GrillaHorarios: React.FC<GrillaHorariosProps> = ({
   );
 };
 
-const invBadgeClass = (estado: string) => {
-  const map: Record<string, string> = {
-    enviada: "ge-inv-badge-enviada", aceptada: "ge-inv-badge-aceptada",
-    rechazada: "ge-inv-badge-rechazada", pendiente: "ge-inv-badge-pendiente",
-    asistio: "ge-inv-badge-asistio", no_asistio: "ge-inv-badge-no_asistio",
-  };
-  return `ge-inv-badge ${map[estado] || ""}`;
-};
-
-const labelEstado: Record<string, string> = {
-  enviada: "Enviada", aceptada: "Aceptada", rechazada: "Rechazada",
-  pendiente: "Pendiente", asistio: "Asistió", no_asistio: "No asistió",
-};
-
 /* ═══════════ COMPONENTE PRINCIPAL ═══════════ */
 
 const GestionEventos: React.FC = () => {
   // Identidad del admin autenticado
   const userIdActual = localStorage.getItem("userId") || "";
+  const navigate = useNavigate();
 
   const [eventos, setEventos]           = useState<Evento[]>([]);
   const [destinos, setDestinos]         = useState<Destino[]>([]);
@@ -275,17 +261,18 @@ const GestionEventos: React.FC = () => {
   const [modalError, setModalError]     = useState("");
   const [formData, setFormData]         = useState<FormData>(EMPTY_FORM);
 
-  // Modal inscritos
-  const [showInvModal, setShowInvModal]   = useState(false);
-  const [invEvento, setInvEvento]         = useState<Evento | null>(null);
-  const [invitaciones, setInvitaciones]   = useState<Invitacion[]>([]);
-  const [loadingInv, setLoadingInv]       = useState(false);
-
   /* ── Helpers de identidad ── */
   const esMio = (ev: Evento): boolean => {
     if (!ev.creadoPor) return false;
     const id = typeof ev.creadoPor === "object" ? ev.creadoPor._id : ev.creadoPor;
     return id === userIdActual;
+  };
+
+  /* ── Helper: verificar si evento ya pasó ── */
+  const eventoYaPaso = (ev: Evento): boolean => {
+    const now = new Date();
+    const eventoEnd = new Date(`${ev.fecha}T${ev.horaFin}`);
+    return eventoEnd < now;
   };
 
   /* ── Fetches ── */
@@ -323,16 +310,6 @@ const GestionEventos: React.FC = () => {
       return lista;
     } catch { setEspaciosDestino([]); return []; }
     finally { setLoadingEspacios(false); }
-  };
-
-  const fetchInvitaciones = async (eventoId: string) => {
-    setLoadingInv(true);
-    try {
-      const res = await api.get(`/invitaciones/event/${eventoId}`);
-      const raw = res.data;
-      setInvitaciones(Array.isArray(raw) ? raw : (raw.data ?? []));
-    } catch { setInvitaciones([]); }
-    finally { setLoadingInv(false); }
   };
 
   useEffect(() => { fetchEventos(); fetchDestinos(); }, []);
@@ -406,6 +383,9 @@ const GestionEventos: React.FC = () => {
     if (!formData.titulo || !formData.fecha || !formData.horaInicio || !formData.horaFin || !formData.destino) {
       setModalError("Completa todos los campos obligatorios."); return;
     }
+    if (espaciosDestino.length === 0) {
+      setModalError("El lugar seleccionado no tiene espacios disponibles. No se puede crear el evento."); return;
+    }
     if (!modoEdicion && formData.fecha < getTodayStr()) {
       setModalError("No puedes crear eventos en fechas pasadas."); return;
     }
@@ -433,10 +413,8 @@ const GestionEventos: React.FC = () => {
       }
     }
     setSaving(true); setModalError("");
-    // cuposDisponibles = cupos al crear; en edición se preserva el valor del servidor
     const payload = {
       ...formData,
-      cuposDisponibles: modoEdicion ? (eventoActual?.cuposDisponibles ?? formData.cupos) : formData.cupos,
       espacio: formData.espacio || null,
     };
     try {
@@ -514,6 +492,18 @@ const GestionEventos: React.FC = () => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span className="ge-badge-rol">Admin</span>
+            <button
+              onClick={() => exportEventosPDF(eventos)}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar PDF
+            </button>
             <button className="ge-btn-nuevo" onClick={abrirAgregar}>
               <Plus size={16} /> Nuevo Evento
             </button>
@@ -592,6 +582,7 @@ const GestionEventos: React.FC = () => {
                 <thead>
                   <tr>
                     <th>Evento</th>
+                    <th style={{ width: "25%" }}>Descripción</th>
                     <th><MapPin size={12} style={{ verticalAlign: "middle" }} /> Lugar</th>
                     <th>Fecha</th>
                     <th><Clock size={12} style={{ verticalAlign: "middle" }} /> Horario</th>
@@ -603,7 +594,7 @@ const GestionEventos: React.FC = () => {
                 <tbody>
                   {listaFiltrada.length === 0 ? (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="ge-empty">
                           <Calendar size={38} />
                           <h3>
@@ -624,14 +615,25 @@ const GestionEventos: React.FC = () => {
                   ) : (
                     listaPagina.map(ev => {
                       const mio = esMio(ev);
-                      const pocosLugar = ev.cuposDisponibles <= Math.ceil(ev.cupos * 0.2);
+                      const pasado = eventoYaPaso(ev);
+                      const pocosLugar = ev.cuposDisponibles < 5; // alerta si quedan menos de 5 cupos
                       return (
-                        <tr key={ev._id} className={!mio ? "ge-row-locked" : ""}>
+                        <tr key={ev._id} className={!mio ? "ge-row-locked" : pasado ? "ge-row-pasado" : ""}>
                           <td>
                             <div className="ge-cell-titulo">
                               <strong>{ev.titulo}</strong>
-                              {ev.descripcion && <span>{ev.descripcion.slice(0, 60)}{ev.descripcion.length > 60 ? "…" : ""}</span>}
                             </div>
+                          </td>
+                          <td style={{ fontSize: "0.84rem", color: "var(--gray-600)" }}>
+                            {ev.descripcion ? (
+                                <span title={ev.descripcion}>
+                                  {ev.descripcion.length > 20
+                                    ? `${ev.descripcion.slice(0, 20)}...`
+                                    : ev.descripcion}
+                                </span>
+                              ) : (
+                              <span style={{ color: "var(--gray-400)", fontStyle: "italic" }}>Sin descripción</span>
+                            )}
                           </td>
                           <td>
                             <span className="ge-badge ge-badge-lugar">
@@ -650,23 +652,30 @@ const GestionEventos: React.FC = () => {
                             </span>
                           </td>
                           <td>
-                            {ev.activo
-                              ? <span className="ge-estatus-activo">Activo</span>
-                              : <span className="ge-estatus-inactivo">Inactivo</span>
-                            }
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {pasado && (
+                                <span style={{ fontSize: "0.75rem", background: "#fee2e2", color: "#b91c1c", padding: "4px 8px", borderRadius: 4, fontWeight: 600 }}>
+                                  Pasado
+                                </span>
+                              )}
+                              {ev.activo
+                                ? <span className="ge-estatus-activo">Activo</span>
+                                : <span className="ge-estatus-inactivo">Inactivo</span>
+                              }
+                            </div>
                           </td>
                           <td>
                             <div className="ge-acciones">
-                              {/* Ver inscritos — siempre disponible */}
+                              {/* Ver inscritos — navega a la página dedicada */}
                               <button
                                 className="ge-btn-icon"
-                                title="Ver inscritos"
-                                onClick={() => { setInvEvento(ev); setShowInvModal(true); fetchInvitaciones(ev._id); }}
+                                title="Ver inscritos y asistencia"
+                                onClick={() => navigate(`/admin/inscritos/${ev._id}`)}
                               >
                                 <Eye size={15} />
                               </button>
 
-                              {mio ? (
+                              {mio && !pasado ? (
                                 <>
                                   <button className="ge-btn-icon" title="Editar" onClick={() => abrirEditar(ev)}>
                                     <Pencil size={15} />
@@ -682,6 +691,10 @@ const GestionEventos: React.FC = () => {
                                     <Trash2 size={15} />
                                   </button>
                                 </>
+                              ) : mio && pasado ? (
+                                <span style={{ fontSize: "0.7rem", color: "var(--gray-400)", fontStyle: "italic" }}>
+                                  No editable
+                                </span>
                               ) : null}
                             </div>
                           </td>
@@ -788,16 +801,7 @@ const GestionEventos: React.FC = () => {
                   <label className="ge-form-label">Cupos totales *</label>
                   <input className="ge-input" type="number" name="cupos" min={1} value={formData.cupos} onChange={handleChange} />
                 </div>
-                {modoEdicion && eventoActual && (
-                  <div>
-                    <label className="ge-form-label">Cupos disponibles</label>
-                    <input className="ge-input" type="number" value={eventoActual.cuposDisponibles} disabled
-                      style={{ opacity: 0.6, cursor: "not-allowed" }} />
-                    <p style={{ fontSize: "0.75rem", color: "var(--gray-400)", margin: "4px 0 0" }}>
-                      Se actualiza automáticamente con las suscripciones.
-                    </p>
-                  </div>
-                )}
+
               </div>
 
               {/* Imagen del evento — solo al editar */}
@@ -838,7 +842,7 @@ const GestionEventos: React.FC = () => {
 
             <div className="ge-modal-footer">
               <button className="ge-btn-cancelar" onClick={cerrarModal}>Cancelar</button>
-              <button className="ge-btn-guardar" onClick={guardarEvento} disabled={saving}>
+              <button className="ge-btn-guardar" onClick={guardarEvento} disabled={saving || (Boolean(formData.destino) && espaciosDestino.length === 0)}>
                 {saving ? "Guardando…" : modoEdicion ? "Actualizar" : "Crear Evento"}
               </button>
             </div>
@@ -846,69 +850,6 @@ const GestionEventos: React.FC = () => {
         </div>
       )}
 
-      {/* ══ Modal Inscritos ══ */}
-      {showInvModal && (
-        <div className="ge-modal-overlay">
-          <div className="ge-modal" style={{ width: 600 }}>
-            <div className="ge-modal-header">
-              <div>
-                <h2>Usuarios inscritos</h2>
-                <p>{invEvento?.titulo}</p>
-              </div>
-              <button className="ge-modal-close" onClick={() => setShowInvModal(false)}><X size={17} /></button>
-            </div>
-
-            <div className="ge-modal-body">
-              {loadingInv && <p style={{ color: "var(--gray-400)", textAlign: "center", padding: 24 }}>Cargando inscritos…</p>}
-
-              {!loadingInv && invitaciones.length === 0 && (
-                <div className="ge-empty" style={{ padding: "32px 0" }}>
-                  <Users size={32} />
-                  <h3>Sin inscritos aún</h3>
-                  <p>Los usuarios se registran desde la app móvil.</p>
-                </div>
-              )}
-
-              {!loadingInv && invitaciones.length > 0 && (
-                <>
-                  <p style={{ color: "var(--gray-400)", fontSize: "0.82rem", margin: "0 0 10px" }}>
-                    {invitaciones.length} solicitud(es)
-                  </p>
-                  <div style={{ overflowX: "auto" }}>
-                    <table className="ge-inv-table">
-                      <thead>
-                        <tr>
-                          <th>Nombre</th>
-                          <th>Correo</th>
-                          <th>Invitación</th>
-                          <th>Asistencia</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invitaciones.map(inv => {
-                          const u = (inv.usuario && typeof inv.usuario === "object") ? inv.usuario as UsuarioInv : null;
-                          return (
-                            <tr key={inv._id}>
-                              <td>{u ? (u.nombre || u.name || "Sin nombre") : "—"}</td>
-                              <td style={{ color: "var(--gray-500)", fontSize: "0.82rem" }}>{u ? (u.email || u.correo || "Sin correo") : "—"}</td>
-                              <td><span className={invBadgeClass(inv.estadoInvitacion)}>{labelEstado[inv.estadoInvitacion] || inv.estadoInvitacion}</span></td>
-                              <td><span className={invBadgeClass(inv.estadoAsistencia)}>{labelEstado[inv.estadoAsistencia] || inv.estadoAsistencia}</span></td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="ge-modal-footer">
-              <button className="ge-btn-cancelar" onClick={() => setShowInvModal(false)}>Cerrar</button>
-            </div>
-          </div>
-        </div>
-      )}
       <ConfirmModal
         open={confirmOpen}
         mensaje={confirmMsg}

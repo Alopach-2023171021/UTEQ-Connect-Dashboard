@@ -21,11 +21,13 @@ const CardUbicacion: React.FC<CardUbicacionProps> = ({
       className={`card-ubicacion ${active ? "active" : ""}`}
       onClick={onClick}
     >
-      <img src={img} alt={titulo} className="card-img" />
+      <div className="card-ubicacion__img-wrapper">
+        <img src={img} alt={titulo} className="card-ubicacion__img" />
+      </div>
 
-      <div className="card-body">
-        <h3>{titulo}</h3>
-        <p>{descripcion}</p>
+      <div className="card-ubicacion__body">
+        <h3 className="card-ubicacion__nombre">{titulo}</h3>
+        <p className="card-ubicacion__descripcion">{descripcion}</p>
       </div>
     </div>
   );

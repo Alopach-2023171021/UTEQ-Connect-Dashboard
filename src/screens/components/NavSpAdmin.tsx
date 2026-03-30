@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import "../../styles/NavSpAdmin.css";
 import profile from "../../assets/Perfil.png";
-import ThemeToggle from "../ThemeToggle";
+import ThemeToggle from "../../components/ThemeToggle";
 
 const NavSpAdmin: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -59,7 +59,6 @@ const NavSpAdmin: React.FC = () => {
           {!collapsed && <span>Gestión de Usuarios</span>}
         </button>
 
-        {/* ── NUEVO: Personal ── */}
         <button className={isActive("/admin-sp/personal") ? "active" : ""} onClick={() => navigate("/admin-sp/personal")}>
           <UserCog size={18} />
           {!collapsed && <span>Gestión de Personal</span>}

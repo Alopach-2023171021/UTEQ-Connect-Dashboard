@@ -18,56 +18,58 @@ const HomeScreen: React.FC = () => {
       </div>
       <div className="overlay">
         <div className="logo-container">
-          <img src={logo} alt="Logo" className="logo" />
+          <img src={logo} alt="Logo UTEQ Connect" className="logo" />
         </div>
 
         <div className="buttons-container">
           <button
             className="btn-primary"
             onClick={() => navigate("/login")}
+            type="button"
           >
-            Inicio de Sesión
+            Acceder al Sistema
           </button>
-
-
         </div>
       </div>
+      
       <footer className="footer">
-  <div className="footer-content">
+        <div className="footer-content">
 
-    {/* LOGOS */}
-    <div className="footer-section logos">
-      <img 
-        src="https://www.uteq.edu.mx/assets/img/logos/uteq/logo_halcon_blanco.png" 
-        alt="UTEQ" 
-        className="footer-logo"
-      />
-      <img 
-        src={logo} 
-        alt="Proyecto" 
-        className="footer-logo small"
-      />
-    </div>
+          {/* LOGOS */}
+          <div className="footer-section logos">
+            <img 
+              src="https://www.uteq.edu.mx/assets/img/logos/uteq/logo_halcon_blanco.png" 
+              alt="UTEQ" 
+              className="footer-logo"
+            />
+            <img 
+              src={logo} 
+              alt="UTEQ Connect" 
+              className="footer-logo small"
+            />
+          </div>
 
-    {/* Contacto */}
-    <div className="footer-section">
-      <h4>Contacto</h4>
-      <p>Teléfono: (442) 209 61 00</p>
-    </div>
+          {/* Contacto */}
+          <div className="footer-section">
+            <h4>Contacto</h4>
+            <p>Teléfono: (442) 209 61 00</p>
+            <p>Email: soporte@uteq.edu.mx</p>
+          </div>
 
-    {/* Enlaces */}
-    <div className="footer-section links">
-      <h4>Enlaces</h4>
-      <a href="#">Portal de alumnos</a>
-      <a href="#">Proveedores</a>
-      <a href="#">Sistema SRFT</a>
-      <a href="#">Portal de Idiomas</a>
-    </div>
+          {/* Enlaces */}
+          <div className="footer-section links">
+            <h4>Enlaces Útiles</h4>
+            <a href="https://www.uteq.edu.mx" target="_blank" rel="noopener noreferrer">Sitio Web UTEQ</a>
+            <a href="#" title="Próximamente">Portal de Alumnos</a>
+            <a href="#" title="Próximamente">Sistema de Proveedores</a>
+          </div>
 
-  </div>
+        </div>
 
-  <p className="footer-copy">© 2026 UTEQ - Todos los derechos reservados</p>
-</footer>
+        <p className="footer-copy">
+          © 2026 UTEQ - UTEQ Connect Sistema de Gestión de Espacios • Todos los derechos reservados
+        </p>
+      </footer>
     </div>
     
   );

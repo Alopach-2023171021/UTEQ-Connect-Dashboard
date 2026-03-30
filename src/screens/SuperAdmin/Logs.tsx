@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import "../../styles/Logs.css";
 import NavSpAdmin from "../components/NavSpAdmin";
-import { Eye, X, Shield } from "lucide-react";
+import { Eye, X, Shield, FileDown } from "lucide-react";
+import { exportLogsPDF } from "../../utils/pdfExport";
 
 interface Log {
   id: number;
@@ -36,8 +37,20 @@ const Logs: React.FC = () => {
       <NavSpAdmin />
 
       <div className="logs-main">
-        <header className="logs-header">
+        <header className="logs-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h1>Seguridad del Sistema</h1>
+          <button
+            onClick={() => exportLogsPDF(logs)}
+            title="Descargar PDF"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: "var(--radius-sm)",
+              background: "#e53e3e", color: "#fff", border: "none",
+              cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+            }}
+          >
+            <FileDown size={15} /> Descargar PDF
+          </button>
         </header>
 
         <div className="logs-content">

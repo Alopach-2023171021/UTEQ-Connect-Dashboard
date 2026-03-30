@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import "../../styles/Eventos.css";
 import NavSpAdmin from "../components/NavSpAdmin";
 import {
   Plus, Pencil, Trash2, Power, PowerOff, X,
   MapPin, Users, Clock, ChevronLeft, ChevronRight, Eye,
-  AlertTriangle, CheckCircle2, Lock,
+  AlertTriangle, CheckCircle2, Lock, FileDown,
 } from "lucide-react";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
+import { exportEventosPDF } from "../../utils/pdfExport";
 import ImageUploader from "../../components/ImageUploader";
 import { API_URL } from "../../api/config";
 
@@ -27,9 +29,6 @@ interface Evento {
   creadoPor?: { _id: string; nombre: string; email: string } | string;
 }
 
-interface UsuarioInv { _id: string; nombre?: string; name?: string; apellidoPaterno?: string; email?: string; correo?: string; }
-interface Invitacion { _id: string; usuario: UsuarioInv | string | null; estadoInvitacion: string; estadoAsistencia: string; fechaEnvio: string; }
-
 interface FormData {
   titulo: string; descripcion: string;
   fecha: string;
@@ -38,21 +37,16 @@ interface FormData {
   cupos: number;
 }
 
-/**
- * Info del conflicto detectado en paso 1.
- * El paso 2 permite al superadmin elegir a qué lugar+espacio
- * se moverá el evento conflictivo para liberarle el espacio al nuevo.
- */
 interface ConflictoInfo {
   eventoId: string;
   eventoTitulo: string;
   horaInicio: string;
   horaFin: string;
-  // Selección del usuario para reubicar el evento conflictivo:
+  cuposEvento: number;
   nuevoDestino: string;
   nuevoEspacio: string;
-  // Espacios cargados para el destino elegido (filtrados: solo disponibles)
   espaciosCargados: Espacio[];
+  espaciosExternos: Array<{ destinoId: string; destinoNombre: string; espacios: Espacio[] }>;
   loadingEspacios: boolean;
 }
 
@@ -86,23 +80,7 @@ const toMin = (h: string) => { const [hh,mm] = h.split(":").map(Number); return 
 const hayTraslapeH = (h1i: string, h1f: string, h2i: string, h2f: string) =>
   toMin(h1i) < toMin(h2f) && toMin(h1f) > toMin(h2i);
 
-const estadoBadge = (estado: string) => {
-  const m: Record<string, {label:string;bg:string;color:string;border:string}> = {
-    enviada:  { label:"Enviada",   bg:"#dbeafe", color:"#1d4ed8", border:"#93c5fd" },
-    aceptada: { label:"Aceptada",  bg:"#dcfce7", color:"#16a34a", border:"#86efac" },
-    rechazada:{ label:"Rechazada", bg:"#fee2e2", color:"#dc2626", border:"#fca5a5" },
-    pendiente:{ label:"Pendiente", bg:"#fef3c7", color:"#d97706", border:"#fcd34d" },
-  };
-  const s = m[estado] || { label:estado, bg:"#f3f4f6", color:"#6b7280", border:"#d1d5db" };
-  return (
-    <span style={{
-      background:s.bg, color:s.color, border:`1px solid ${s.border}`,
-      padding:"2px 10px", borderRadius:20, fontSize:"0.78rem", fontWeight:600
-    }}>
-      {s.label}
-    </span>
-  );
-};
+
 
 /* ═══════════════ GRILLA DE HORARIOS ═══════════════ */
 
@@ -124,7 +102,6 @@ const GrillaHorarios: React.FC<GrillaHorariosProps> = ({
   const [franjaFin, setFranjaFin] = useState<number|null>(null);
 
   const franjaMinIdx = useMemo(() => {
-    // Al editar NO bloqueamos franjas pasadas: el evento ya existe con esos horarios
     if (modoEdicion) return 0;
     if (!fecha) return 0;
     if (fecha !== getTodayStr()) return 0;
@@ -164,7 +141,6 @@ const GrillaHorarios: React.FC<GrillaHorariosProps> = ({
 
   const handleMouseDown = (idx: number) => {
     if (idx < franjaMinIdx) return;
-    // Admin normal no puede seleccionar franjas ocupadas; superadmin sí (se pide reasignación)
     if (franjasOcupadas.has(idx) && !esSuperAdmin) return;
     setArrastrando(true); setFranjaInicio(idx); setFranjaFin(idx+1);
   };
@@ -266,6 +242,7 @@ const Eventos: React.FC = () => {
   const rolActual = localStorage.getItem("rol") || "admin";
   const userIdActual = localStorage.getItem("userId") || "";
   const esSuperAdmin = rolActual === "superadmin";
+  const navigate = useNavigate();
 
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [destinos, setDestinos] = useState<Destino[]>([]);
@@ -289,14 +266,8 @@ const Eventos: React.FC = () => {
   const [modalError, setModalError] = useState("");
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
 
-  // Flujo de 2 pasos (solo superadmin cuando hay conflicto)
   const [paso, setPaso] = useState<1|2>(1);
   const [conflicto, setConflicto] = useState<ConflictoInfo|null>(null);
-
-  const [showInvModal, setShowInvModal] = useState(false);
-  const [invEvento, setInvEvento] = useState<Evento|null>(null);
-  const [invitaciones, setInvitaciones] = useState<Invitacion[]>([]);
-  const [loadingInv, setLoadingInv] = useState(false);
 
   const today = new Date();
   const [calYear, setCalYear] = useState(today.getFullYear());
@@ -333,16 +304,6 @@ const Eventos: React.FC = () => {
     } catch {}
   };
 
-  const fetchInvitaciones = async (eventoId: string) => {
-    setLoadingInv(true);
-    try {
-      const res = await api.get(`/invitaciones/event/${eventoId}`);
-      const raw = res.data;
-      setInvitaciones(Array.isArray(raw) ? raw : Array.isArray(raw.data) ? raw.data : (raw.invitaciones ?? []));
-    } catch { setInvitaciones([]); }
-    finally { setLoadingInv(false); }
-  };
-
   const fetchEspaciosPorDestino = async (destinoId: string): Promise<Espacio[]> => {
     if (!destinoId) { setEspaciosDestino([]); return []; }
     setLoadingEspacios(true);
@@ -359,39 +320,91 @@ const Eventos: React.FC = () => {
     finally { setLoadingEspacios(false); }
   };
 
-  /**
-   * Carga los espacios disponibles (libres) de un destino dado
-   * para reubicar el evento conflictivo en el paso 2.
-   */
   const fetchEspaciosParaConflicto = async (destinoId: string) => {
-    if (!destinoId) {
-      setConflicto(p => p ? { ...p, nuevoDestino:"", nuevoEspacio:"", espaciosCargados:[], loadingEspacios:false } : p);
+    const cuposEvento = conflicto?.cuposEvento || 1;
+
+    if (!destinoId || !formData.fecha || !formData.horaInicio || !formData.horaFin) {
+      setConflicto(p => p ? {
+        ...p,
+        nuevoDestino: "",
+        nuevoEspacio: "",
+        espaciosCargados: [],
+        espaciosExternos: [],
+        loadingEspacios: false,
+      } : p);
       return;
     }
-    setConflicto(p => p ? { ...p, nuevoDestino:destinoId, nuevoEspacio:"", espaciosCargados:[], loadingEspacios:true } : p);
+
+    setConflicto(p => p ? {
+      ...p,
+      nuevoDestino: destinoId,
+      nuevoEspacio: "",
+      espaciosCargados: [],
+      espaciosExternos: [],
+      loadingEspacios: true,
+    } : p);
+
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/espacios/destino/${destinoId}`, {
+      const params = new URLSearchParams({
+        destinoId,
+        fecha: formData.fecha,
+        horaInicio: formData.horaInicio,
+        horaFin: formData.horaFin,
+        cupos: String(cuposEvento),
+      });
+      const res = await fetch(`${API_URL}/espacios/sugerencias?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const raw = await res.json();
-      const todos: Espacio[] = Array.isArray(raw) ? raw : (raw.data || []);
-      // Filtrar los que ya están ocupados en la misma fecha/horario del nuevo evento
-      // Excluir al propio evento conflictivo (se está moviendo, no bloquea)
-      const conflictoIdActual = conflicto?.eventoId;
-      const libres = todos.filter(esp =>
-        !eventos.some(ev => {
-          if (!ev.activo) return false;
-          if (conflictoIdActual && ev._id === conflictoIdActual) return false;
-          if (getSalaId(ev.espacio) !== esp._id) return false;
-          return toInputDate(ev.fecha) === formData.fecha &&
-            hayTraslapeH(formData.horaInicio, formData.horaFin, ev.horaInicio, ev.horaFin);
+      const libresMismo: Espacio[] = Array.isArray(raw) ? raw : (raw.data || []);
+
+      const externos: Array<{ destinoId: string; destinoNombre: string; espacios: Espacio[] }> = [];
+      await Promise.all(destinos
+        .filter(d => d._id !== destinoId)
+        .map(async d => {
+          try {
+            const p2 = new URLSearchParams({
+              destinoId: d._id,
+              fecha: formData.fecha,
+              horaInicio: formData.horaInicio,
+              horaFin: formData.horaFin,
+              cupos: String(cuposEvento),
+            });
+            const res2 = await fetch(`${API_URL}/espacios/sugerencias?${p2}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const raw2 = await res2.json();
+            const libresOtros: Espacio[] = Array.isArray(raw2) ? raw2 : (raw2.data || []);
+            if (libresOtros.length > 0) {
+              externos.push({ destinoId: d._id, destinoNombre: d.nombre, espacios: libresOtros });
+            }
+          } catch {}
         })
       );
-      setConflicto(p => p ? { ...p, espaciosCargados:libres, loadingEspacios:false } : p);
+
+      setConflicto(p => p ? {
+        ...p,
+        espaciosCargados: libresMismo,
+        espaciosExternos: externos,
+        loadingEspacios: false,
+      } : p);
     } catch {
-      setConflicto(p => p ? { ...p, espaciosCargados:[], loadingEspacios:false } : p);
+      setConflicto(p => p ? {
+        ...p,
+        espaciosCargados: [],
+        espaciosExternos: [],
+        loadingEspacios: false,
+      } : p);
     }
+  };
+
+  const seleccionarSalaReubicacion = (destinoId: string, salaId: string) => {
+    setConflicto(p => p ? {
+      ...p,
+      nuevoDestino: destinoId,
+      nuevoEspacio: salaId,
+    } : p);
   };
 
   useEffect(() => { fetchEventos(); fetchDestinos(); }, []);
@@ -451,12 +464,21 @@ const Eventos: React.FC = () => {
     setFormData(prev => ({ ...prev, horaInicio, horaFin }));
   };
 
-  /* ── Paso 1: Validar y guardar (o detectar conflicto para superadmin) ── */
+  /* ── Paso 1: Validar y guardar ── */
   const guardarEvento = async () => {
     if (!formData.titulo || !formData.fecha || !formData.horaInicio || !formData.horaFin || !formData.destino) {
       setModalError("Completa todos los campos obligatorios."); return;
     }
-    // Validaciones de fecha/hora SOLO para eventos NUEVOS, no al editar
+    if (formData.destino && espaciosDestino.length === 0) {
+      setModalError("El lugar seleccionado no tiene espacios disponibles. No se puede crear el evento."); return;
+    }
+    if (formData.espacio) {
+      const espacioSeleccionado = espaciosDestino.find(esp => esp._id === formData.espacio);
+      if (espacioSeleccionado && formData.cupos > espacioSeleccionado.cupos) {
+        setModalError(`El espacio seleccionado tiene capacidad de ${espacioSeleccionado.cupos} y no es suficiente para ${formData.cupos} cupos.`);
+        return;
+      }
+    }
     if (!modoEdicion) {
       if (formData.fecha < getTodayStr()) {
         setModalError("No puedes crear eventos en fechas pasadas."); return;
@@ -474,7 +496,6 @@ const Eventos: React.FC = () => {
       setModalError("La hora de fin debe ser posterior a la hora de inicio."); return;
     }
 
-    // Para SuperAdmin: detectar conflicto de sala antes de enviar
     if (esSuperAdmin && formData.espacio) {
       const eventoEditId = modoEdicion ? eventoActual?._id : undefined;
       const eventoConflictivo = eventos.find(ev => {
@@ -486,32 +507,33 @@ const Eventos: React.FC = () => {
       });
 
       if (eventoConflictivo) {
-        // Hay conflicto → ir al paso 2 para pedir dónde reubicar el evento existente
         setConflicto({
           eventoId: eventoConflictivo._id,
           eventoTitulo: eventoConflictivo.titulo,
           horaInicio: eventoConflictivo.horaInicio,
           horaFin: eventoConflictivo.horaFin,
+          cuposEvento: eventoConflictivo.cupos,
           nuevoDestino: "",
           nuevoEspacio: "",
           espaciosCargados: [],
+          espaciosExternos: [],
           loadingEspacios: false,
         });
         setModalError("");
         setPaso(2);
+        fetchEspaciosParaConflicto(formData.destino);
         return;
       }
     }
 
-    // Sin conflicto → guardar directamente
     await _ejecutarGuardado();
   };
 
   const _ejecutarGuardado = async () => {
     setSaving(true); setModalError("");
+
     const dataToSend = {
       ...formData,
-      cuposDisponibles: modoEdicion ? (eventoActual?.cuposDisponibles ?? formData.cupos) : formData.cupos,
       espacio: formData.espacio || null,
     };
     try {
@@ -532,7 +554,6 @@ const Eventos: React.FC = () => {
       cerrarModal(); fetchEventos();
     } catch (err: any) {
       const data = err.response?.data;
-      // Si el backend también detecta conflicto (caso sin espacio seleccionado)
       if (esSuperAdmin) {
         let eventoConf: any = null;
         try {
@@ -547,13 +568,16 @@ const Eventos: React.FC = () => {
             eventoTitulo: eventoConf.titulo,
             horaInicio: eventoConf.horaInicio,
             horaFin: eventoConf.horaFin,
+            cuposEvento: eventoConf.cupos || 1,
             nuevoDestino: "",
             nuevoEspacio: "",
             espaciosCargados: [],
+            espaciosExternos: [],
             loadingEspacios: false,
           });
           setModalError("");
           setPaso(2);
+          fetchEspaciosParaConflicto(formData.destino);
           return;
         }
       }
@@ -565,7 +589,8 @@ const Eventos: React.FC = () => {
   const confirmarReasignacion = async () => {
     if (!conflicto) return;
     if (!conflicto.nuevoDestino || !conflicto.nuevoEspacio) {
-      setModalError("Selecciona un lugar y un espacio donde reubicar el evento existente."); return;
+      setModalError("Selecciona un lugar y un espacio donde reubicar el evento existente.");
+      return;
     }
     setSaving(true); setModalError("");
     const dataToSend = {
@@ -577,15 +602,15 @@ const Eventos: React.FC = () => {
       if (modoEdicion && eventoActual) {
         await api.put(`/events/${eventoActual._id}/reasignar-actualizar`, {
           eventoPrevioId: conflicto.eventoId,
-          nuevaEspacioId: conflicto.nuevoEspacio,
-          nuevaDestinoPrevioId: conflicto.nuevoDestino,
+          nuevaEspacioId: conflicto.nuevoEspacio || undefined,
+          nuevaDestinoPrevioId: conflicto.nuevoDestino || undefined,
           updateData: dataToSend,
         });
       } else {
         const resReasignar = await api.post("/events/reasignar-crear", {
           eventoPrevioId: conflicto.eventoId,
-          nuevaEspacioId: conflicto.nuevoEspacio,
-          nuevaDestinoPrevioId: conflicto.nuevoDestino,
+          nuevaEspacioId: conflicto.nuevoEspacio || undefined,
+          nuevaDestinoPrevioId: conflicto.nuevoDestino || undefined,
           nuevoEvento: { ...dataToSend, creadoPor: userIdActual || undefined },
         });
         const nuevoId = resReasignar.data?.data?._id || resReasignar.data?._id;
@@ -657,15 +682,29 @@ const Eventos: React.FC = () => {
             <h1>Gestión de Eventos</h1>
             <p>{eventos.length} evento(s) registrados</p>
           </div>
-          <span style={{
-            fontSize:"0.75rem", padding:"4px 12px", borderRadius:20,
-            background: esSuperAdmin ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.15)",
-            color: esSuperAdmin ? "#c4b5fd" : "rgba(255,255,255,0.85)",
-            border:`1px solid ${esSuperAdmin ? "rgba(139,92,246,0.4)" : "rgba(255,255,255,0.25)"}`,
-            fontWeight:600,
-          }}>
-            {esSuperAdmin ? "⚡ Super Admin" : "Admin — solo tus eventos"}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={() => exportEventosPDF(eventos)}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar PDF
+            </button>
+            <span style={{
+              fontSize:"0.75rem", padding:"4px 12px", borderRadius:20,
+              background: esSuperAdmin ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.15)",
+              color: esSuperAdmin ? "#c4b5fd" : "rgba(255,255,255,0.85)",
+              border:`1px solid ${esSuperAdmin ? "rgba(139,92,246,0.4)" : "rgba(255,255,255,0.25)"}`,
+              fontWeight:600,
+            }}>
+              {esSuperAdmin ? "⚡ Super Admin" : "Admin — solo tus eventos"}
+            </span>
+          </div>
         </header>
 
         <div className="eventos-content">
@@ -762,8 +801,8 @@ const Eventos: React.FC = () => {
                         <td style={{ fontSize:"0.82rem", color:"#6b7280" }}>{nombreCreador(ev)}</td>
                         <td><span className={ev.activo?"estatus-activo":"estatus-inactivo"}>{ev.activo?"Activo":"Inactivo"}</span></td>
                         <td className="acciones">
-                          <button className="btn-icon" title="Ver inscritos"
-                            onClick={() => { setInvEvento(ev); setShowInvModal(true); fetchInvitaciones(ev._id); }}>
+                          <button className="btn-icon" title="Ver inscritos y asistencia"
+                            onClick={() => navigate(`/admin-sp/inscritos/${ev._id}`)}>
                             <Eye size={16} />
                           </button>
                           <button className="btn-icon" onClick={() => abrirEditar(ev)} disabled={!puedeMod}><Pencil size={16} /></button>
@@ -805,9 +844,7 @@ const Eventos: React.FC = () => {
               <button onClick={cerrarModal}><X size={18} /></button>
             </div>
 
-            {/* ══════════════════════════════════════
-                PASO 1 — Formulario del nuevo evento
-            ══════════════════════════════════════ */}
+            {/* ══ PASO 1 ══ */}
             {paso === 1 && (
               <>
                 <div className="modal-body">
@@ -824,7 +861,12 @@ const Eventos: React.FC = () => {
                       value={formData.descripcion} onChange={handleChange} />
                   </div>
 
-                  {/* Lugar */}
+                  <div className="form-group">
+                    <label>Cupos totales *</label>
+                    <input type="number" name="cupos" min={1} value={formData.cupos} onChange={handleChange} />
+                    <p className="form-hint">Elige el tamaño del evento antes de seleccionar sala.</p>
+                  </div>
+
                   <div className="form-group">
                     <label>Lugar *</label>
                     <select name="destino" value={formData.destino} onChange={handleChange}>
@@ -833,7 +875,6 @@ const Eventos: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* Espacio / Sala */}
                   {formData.destino && (
                     <div className="form-group">
                       <label>Sala / Aula <span className="label-opcional">(opcional)</span></label>
@@ -842,11 +883,15 @@ const Eventos: React.FC = () => {
                       ) : espaciosDestino.length > 0 ? (
                         <select name="espacio" value={formData.espacio} onChange={handleChange}>
                           <option value="">— Sin sala específica —</option>
-                          {espaciosDestino.map(esp => (
-                            <option key={esp._id} value={esp._id}>
-                              {esp.nombre} · Planta {esp.planta} · {esp.cupos} cupos
-                            </option>
-                          ))}
+                          {espaciosDestino.map(esp => {
+                            const capacidadInsuficiente = formData.cupos > esp.cupos;
+                            return (
+                              <option key={esp._id} value={esp._id} disabled={capacidadInsuficiente}>
+                                {esp.nombre} · Planta {esp.planta} · {esp.cupos} cupos
+                                {capacidadInsuficiente ? " (Cupo insuficiente)" : ""}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         <p className="form-hint sin-aulas">Sin aulas registradas en este lugar</p>
@@ -854,14 +899,12 @@ const Eventos: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Fecha */}
                   <div className="form-group">
                     <label>Fecha del evento *</label>
                     <input type="date" name="fecha" value={formData.fecha}
                       min={modoEdicion ? undefined : getTodayStr()} onChange={handleChange} />
                   </div>
 
-                  {/* Grilla de horarios */}
                   <GrillaHorarios
                     eventos={eventos} espacioId={formData.espacio} destinoId={formData.destino}
                     fecha={formData.fecha} horaInicioSel={formData.horaInicio} horaFinSel={formData.horaFin}
@@ -869,7 +912,6 @@ const Eventos: React.FC = () => {
                     modoEdicion={modoEdicion} onChange={handleHorarioChange}
                   />
 
-                  {/* Horas — solo lectura, se asignan desde la grilla */}
                   {(formData.horaInicio || formData.horaFin) && (
                     <div className="form-row">
                       <div className="form-group">
@@ -890,25 +932,6 @@ const Eventos: React.FC = () => {
                     </p>
                   )}
 
-                  {/* Cupos */}
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Cupos totales *</label>
-                      <input type="number" name="cupos" min={1} value={formData.cupos} onChange={handleChange} />
-                    </div>
-                    {modoEdicion && eventoActual && (
-                      <div className="form-group">
-                        <label>Cupos disponibles</label>
-                        <input type="number" value={eventoActual.cuposDisponibles} disabled
-                          style={{ opacity:0.6, cursor:"not-allowed" }} />
-                        <p style={{ fontSize:"0.75rem", color:"#9ca3af", margin:"4px 0 0" }}>
-                          Se actualiza automáticamente con las suscripciones.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Imagen */}
                   {modoEdicion && eventoActual && (
                     <div className="form-group">
                       <label>Imagen del evento</label>
@@ -940,17 +963,14 @@ const Eventos: React.FC = () => {
                 </div>
                 <div className="modal-footer">
                   <button className="btn-cancelar" onClick={cerrarModal}>Cancelar</button>
-                  <button className="btn-guardar" onClick={guardarEvento} disabled={saving}>
+                  <button className="btn-guardar" onClick={guardarEvento} disabled={saving || (Boolean(formData.destino) && espaciosDestino.length === 0)}>
                     {saving ? "Verificando..." : modoEdicion ? "Actualizar" : "Guardar"}
                   </button>
                 </div>
               </>
             )}
 
-            {/* ══════════════════════════════════════════════════════════
-                PASO 2 — Elegir nuevo lugar/espacio para el evento conflictivo
-                (el evento que ocupa el horario que quiero tomar)
-            ══════════════════════════════════════════════════════════ */}
+            {/* ══ PASO 2 ══ */}
             {paso === 2 && conflicto && (
               <>
                 <div className="modal-body" style={{ gap:16 }}>
@@ -1001,57 +1021,37 @@ const Eventos: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* ── Selector: nuevo LUGAR para el evento conflictivo ── */}
+                  {/* Sugerencias */}
                   <div className="form-group">
                     <label style={{ fontWeight:600, color:"#374151" }}>
-                      Nuevo lugar para "{conflicto.eventoTitulo}" *
+                      Sugerencias de reubicación para "{conflicto.eventoTitulo}" *
                     </label>
-                    <select
-                      value={conflicto.nuevoDestino}
-                      onChange={e => fetchEspaciosParaConflicto(e.target.value)}
-                    >
-                      <option value="">— Selecciona un lugar —</option>
-                      {destinos.map(d => (
-                        <option key={d._id} value={d._id}>
-                          {d.nombre}
-                          {d._id === formData.destino ? " (lugar del nuevo evento)" : ""}
-                        </option>
-                      ))}
-                    </select>
                     <p className="form-hint" style={{ marginTop:4 }}>
-                      Puedes elegir el mismo lugar u otro diferente.
+                      El sistema mostrará sugerencias de espacios disponibles con capacidad suficiente.
                     </p>
-                  </div>
 
-                  {/* ── Selector: nuevo ESPACIO para el evento conflictivo ── */}
-                  {conflicto.nuevoDestino && (
-                    <div className="form-group">
-                      <label style={{ fontWeight:600, color:"#374151" }}>
-                        Nuevo espacio para "{conflicto.eventoTitulo}" *
-                      </label>
+                    {conflicto.loadingEspacios && (
+                      <p className="form-hint">Cargando sugerencias automáticas...</p>
+                    )}
 
-                      {conflicto.loadingEspacios && (
-                        <p className="form-hint">Cargando espacios disponibles…</p>
-                      )}
+                    {!conflicto.loadingEspacios && conflicto.espaciosCargados.length === 0 && conflicto.espaciosExternos.length === 0 && (
+                      <div className="sin-salas-aviso">
+                        ⚠ No hay sugerencias disponibles para esta fecha/hora/cupo. Prueba con otra hora o lugar.
+                      </div>
+                    )}
 
-                      {!conflicto.loadingEspacios && conflicto.espaciosCargados.length === 0 && (
-                        <div className="sin-salas-aviso">
-                          ⚠ No hay espacios disponibles en ese lugar para el horario{" "}
-                          <strong>{conflicto.horaInicio}–{conflicto.horaFin}</strong>.
-                          Prueba con otro lugar.
-                        </div>
-                      )}
-
-                      {!conflicto.loadingEspacios && conflicto.espaciosCargados.length > 0 && (
+                    {!conflicto.loadingEspacios && conflicto.espaciosCargados.length > 0 && (
+                      <div className="sugerencias-group">
+                        <h4>Sugerencias en el edificio actual</h4>
                         <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:6 }}>
                           {conflicto.espaciosCargados.map(sala => (
                             <label
                               key={sala._id}
-                              className={`sala-opcion ${conflicto.nuevoEspacio === sala._id ? "seleccionada" : ""}`}
-                              onClick={() => setConflicto(p => p ? { ...p, nuevoEspacio:sala._id } : p)}
+                              className={`sala-opcion ${conflicto.nuevoDestino === formData.destino && conflicto.nuevoEspacio === sala._id ? "seleccionada" : ""}`}
+                              onClick={() => seleccionarSalaReubicacion(formData.destino, sala._id)}
                               style={{ cursor:"pointer" }}
                             >
-                              {conflicto.nuevoEspacio === sala._id
+                              {conflicto.nuevoDestino === formData.destino && conflicto.nuevoEspacio === sala._id
                                 ? <CheckCircle2 size={18} color="#16a34a" />
                                 : <div className="sala-radio-circulo" />}
                               <div>
@@ -1061,30 +1061,64 @@ const Eventos: React.FC = () => {
                             </label>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
 
-                  {/* Confirmación visual cuando ya eligió */}
-                  {conflicto.nuevoEspacio && (
-                    <div style={{
-                      background:"#f0fdf4", border:"1px solid #86efac",
-                      borderRadius:8, padding:"10px 14px",
-                      display:"flex", gap:8, alignItems:"center"
-                    }}>
-                      <CheckCircle2 size={16} color="#16a34a" style={{ flexShrink:0 }} />
-                      <p style={{ fontSize:"0.82rem", color:"#15803d", margin:0 }}>
-                        <strong>"{conflicto.eventoTitulo}"</strong> se moverá a{" "}
-                        <strong>{destinos.find(d=>d._id===conflicto.nuevoDestino)?.nombre}</strong>
-                        {" – "}
-                        <strong>{conflicto.espaciosCargados.find(e=>e._id===conflicto.nuevoEspacio)?.nombre}</strong>.
-                        Pulsa <strong>"Confirmar"</strong> para guardar ambos cambios.
-                      </p>
-                    </div>
-                  )}
+                    {!conflicto.loadingEspacios && conflicto.espaciosExternos.length > 0 && (
+                      <div className="sugerencias-group" style={{ marginTop:14 }}>
+                        <h4>Sugerencias en otros edificios</h4>
+                        {conflicto.espaciosExternos.map(dest => (
+                          <div key={dest.destinoId} style={{ border:"1px solid #e5e7eb", borderRadius:8, padding:10, marginBottom:10 }}>
+                            <p style={{ margin:"0 0 6px", fontWeight:600 }}>{dest.destinoNombre}</p>
+                            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                              {dest.espacios.map(sala => (
+                                <label
+                                  key={sala._id}
+                                  className={`sala-opcion ${conflicto.nuevoDestino === dest.destinoId && conflicto.nuevoEspacio === sala._id ? "seleccionada" : ""}`}
+                                  onClick={() => seleccionarSalaReubicacion(dest.destinoId, sala._id)}
+                                  style={{ cursor:"pointer" }}
+                                >
+                                  {conflicto.nuevoDestino === dest.destinoId && conflicto.nuevoEspacio === sala._id
+                                    ? <CheckCircle2 size={18} color="#16a34a" />
+                                    : <div className="sala-radio-circulo" />}
+                                  <div>
+                                    <p className="sala-nombre">{sala.nombre}</p>
+                                    <p className="sala-meta">Planta {sala.planta} · {sala.cupos} cupos · ✓ Disponible</p>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-                  {modalError && <div className="modal-error-box"><p>{modalError}</p></div>}
-                </div>
+                    {/* Confirmación visual cuando ya eligió */}
+                    {conflicto.nuevoEspacio && (
+                      <div style={{
+                        background:"#f0fdf4", border:"1px solid #86efac",
+                        borderRadius:8, padding:"10px 14px",
+                        display:"flex", gap:8, alignItems:"center",
+                        marginTop:12,
+                      }}>
+                        <CheckCircle2 size={16} color="#16a34a" style={{ flexShrink:0 }} />
+                        <p style={{ fontSize:"0.82rem", color:"#15803d", margin:0 }}>
+                          <strong>"{conflicto.eventoTitulo}"</strong> se moverá a{" "}
+                          <strong>{destinos.find(d=>d._id===conflicto.nuevoDestino)?.nombre}</strong>
+                          {" – "}
+                          <strong>
+                            {conflicto.espaciosCargados.find(e=>e._id===conflicto.nuevoEspacio)?.nombre
+                              || conflicto.espaciosExternos.flatMap(d=>d.espacios).find(e=>e._id===conflicto.nuevoEspacio)?.nombre}
+                          </strong>.
+                          Pulsa <strong>"Confirmar"</strong> para guardar ambos cambios.
+                        </p>
+                      </div>
+                    )}
+
+                    {modalError && <div className="modal-error-box"><p>{modalError}</p></div>}
+                  </div>{/* cierra form-group sugerencias */}
+
+                </div>{/* cierra modal-body */}
 
                 <div className="modal-footer">
                   <button className="btn-cancelar" onClick={() => { setPaso(1); setModalError(""); setConflicto(null); }}>
@@ -1101,51 +1135,6 @@ const Eventos: React.FC = () => {
               </>
             )}
 
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ MODAL INVITACIONES ═══════════════ */}
-      {showInvModal && (
-        <div className="modal-overlay">
-          <div className="modal-container" style={{ maxWidth:620 }}>
-            <div className="modal-header">
-              <div><h2>Usuarios inscritos</h2><p>{invEvento?.titulo}</p></div>
-              <button onClick={() => setShowInvModal(false)}><X size={18} /></button>
-            </div>
-            <div className="modal-body">
-              {loadingInv && <p style={{ color:"#9ca3af" }}>Cargando usuarios...</p>}
-              {!loadingInv && invitaciones.length === 0 && (
-                <div className="sin-inscritos">
-                  <p>No hay usuarios inscritos aún.</p>
-                  <p>Los usuarios se inscriben desde la app móvil.</p>
-                </div>
-              )}
-              {!loadingInv && invitaciones.length > 0 && (
-                <>
-                  <p style={{ color:"#6b7280", fontSize:"0.82rem", marginBottom:12 }}>{invitaciones.length} solicitud(es)</p>
-                  <table className="inv-tabla">
-                    <thead><tr>{["Nombre","Correo","Invitación","Asistencia"].map(h=><th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>
-                      {invitaciones.map(inv => {
-                        const u = (inv.usuario && typeof inv.usuario === "object") ? inv.usuario as UsuarioInv : null;
-                        return (
-                          <tr key={inv._id}>
-                            <td>{u ? (u.nombre || u.name || "Sin nombre") : "—"}</td>
-                            <td>{u ? (u.email || "Sin correo") : "—"}</td>
-                            <td>{estadoBadge(inv.estadoInvitacion)}</td>
-                            <td>{estadoBadge(inv.estadoAsistencia)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn-cancelar" onClick={() => setShowInvModal(false)}>Cerrar</button>
-            </div>
           </div>
         </div>
       )}

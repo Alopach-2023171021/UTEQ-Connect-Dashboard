@@ -243,6 +243,26 @@
   background: var(--bg-hover);
 }
 
+.ge-table tbody tr.ge-row-locked {
+  opacity: 0.7;
+  background: var(--bg-table-row);
+}
+
+.ge-table tbody tr.ge-row-locked:hover {
+  background: var(--bg-table-row);
+  cursor: not-allowed;
+}
+
+.ge-table tbody tr.ge-row-pasado {
+  opacity: 0.65;
+  background: var(--bg-table-row);
+}
+
+.ge-table tbody tr.ge-row-pasado:hover {
+  background: var(--bg-table-row);
+  cursor: not-allowed;
+}
+
 .ge-table td {
   padding: 12px 16px;
   color: var(--text-primary);

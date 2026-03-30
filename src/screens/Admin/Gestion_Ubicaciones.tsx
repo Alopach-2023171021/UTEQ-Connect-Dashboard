@@ -3,10 +3,11 @@ import "../../styles/InicioAdmin.css";
 import "../../styles/CardUbicacion.css";
 import NavAdmin from "../components/NavAdmin";
 import CardUbicacion from "../components/CardUbicacion";
-import { Plus, X, MapPin, Search } from "lucide-react";
+import { X, MapPin, Search, FileDown } from "lucide-react";
 import ImageUploader from "../../components/ImageUploader";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
+import { exportEdificiosPDF } from "../../utils/pdfExport";
 
 interface Ubicacion {
   _id: string;
@@ -33,7 +34,6 @@ const Gestion_Ubicaciones: React.FC = () => {
   const [activeId, setActiveId]       = useState<string | null>(null);
 
   const [showModal, setShowModal]   = useState(false);
-  const [isEditing, setIsEditing]   = useState(false);
   const [actual, setActual]         = useState<Ubicacion | null>(null);
   const [formData, setFormData]     = useState<FormData>(EMPTY_FORM);
   const [modalError, setModalError] = useState("");
@@ -69,13 +69,8 @@ const Gestion_Ubicaciones: React.FC = () => {
     : `https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d29870.07649894674!2d-100.43341862501377!3d20.63865497852324!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x85d35a486363880d%3A0xd927286fe3c75218!2sUTEQ!5e0!3m2!1ses!2smx!4v1`;
 
   /* ── Modal ── */
-  const abrirAgregar = () => {
-    setIsEditing(false); setActual(null);
-    setFormData(EMPTY_FORM); setModalError(""); setShowModal(true);
-  };
-
   const abrirEditar = (u: Ubicacion) => {
-    setIsEditing(true); setActual(u);
+    setActual(u);
     setFormData({
       nombre: u.nombre,
       latitude: String(u.posicion.latitude),
@@ -88,34 +83,17 @@ const Gestion_Ubicaciones: React.FC = () => {
 
   const validar = (): string | null => {
     if (!formData.nombre.trim()) return "El nombre es obligatorio.";
-    if (!isEditing) {
-      const lat = parseFloat(formData.latitude);
-      const lng = parseFloat(formData.longitude);
-      if (isNaN(lat) || lat < -90  || lat > 90)  return "Latitud inválida (−90 a 90).";
-      if (isNaN(lng) || lng < -180 || lng > 180) return "Longitud inválida (−180 a 180).";
-    }
     return null;
   };
 
   const guardar = async () => {
     const err = validar();
     if (err) { setModalError(err); return; }
+    if (!actual) { setModalError("Selecciona una ubicación antes de guardar."); return; }
     setSaving(true); setModalError("");
-    const body = isEditing
-      ? { nombre: formData.nombre.trim() }
-      : {
-          nombre: formData.nombre.trim(),
-          posicion: {
-            latitude:  parseFloat(formData.latitude),
-            longitude: parseFloat(formData.longitude),
-          },
-        };
+    const body = { nombre: formData.nombre.trim() };
     try {
-      if (isEditing && actual) {
-        await api.put(`/locations/${actual._id}`, body);
-      } else {
-        await api.post("/locations", body);
-      }
+      await api.put(`/locations/${actual._id}`, body);
       cerrarModal(); fetchUbicaciones();
     } catch (e: any) {
       setModalError(e.response?.data?.error || "Error al guardar.");
@@ -179,19 +157,16 @@ const Gestion_Ubicaciones: React.FC = () => {
             </p>
           </div>
           <button
-            onClick={abrirAgregar}
+            onClick={() => exportEdificiosPDF(ubicaciones)}
+            title="Descargar PDF"
             style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              background: "rgba(255,255,255,.15)", color: "#fff",
-              border: "1.5px solid rgba(255,255,255,.3)",
-              padding: "9px 18px", borderRadius: "var(--radius-md)",
-              fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
-              fontFamily: "var(--font-sans)", transition: "all .2s",
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: "var(--radius-sm)",
+              background: "#e53e3e", color: "#fff", border: "none",
+              cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,.25)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,.15)")}
           >
-            <Plus size={16} /> Agregar Ubicación
+            <FileDown size={15} /> Descargar PDF
           </button>
         </header>
 
@@ -264,7 +239,6 @@ const Gestion_Ubicaciones: React.FC = () => {
             <div style={{ textAlign: "center", padding: "56px 24px", color: "var(--gray-400)", fontFamily: "var(--font-sans)" }}>
               <MapPin size={40} style={{ margin: "0 auto 14px", display: "block", opacity: .3 }} />
               <p style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--gray-500)", margin: "0 0 6px" }}>Sin ubicaciones registradas</p>
-              <p style={{ fontSize: "0.84rem", margin: 0 }}>Pulsa «Agregar Ubicación» para crear la primera.</p>
             </div>
           )}
 
@@ -345,7 +319,7 @@ const Gestion_Ubicaciones: React.FC = () => {
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <h2 style={{ color: "#fff", margin: 0, fontSize: "1rem", fontWeight: 700 }}>
-                {isEditing ? "Editar Ubicación" : "Agregar Ubicación"}
+                Editar Ubicación
               </h2>
               <button
                 onClick={cerrarModal}
@@ -372,53 +346,18 @@ const Gestion_Ubicaciones: React.FC = () => {
                 />
               </div>
 
-              {!isEditing && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>
-                      Latitud *
-                    </label>
-                    <input
-                      type="number" step="any"
-                      placeholder="Ej. 20.65485"
-                      value={formData.latitude}
-                      onChange={e => setFormData({ ...formData, latitude: e.target.value })}
-                      style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-800)", background: "var(--white)", outline: "none", boxSizing: "border-box" }}
-                      onFocus={e => { e.target.style.borderColor = "var(--blue-400)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,.12)"; }}
-                      onBlur={e => { e.target.style.borderColor = "var(--border)"; e.target.style.boxShadow = "none"; }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>
-                      Longitud *
-                    </label>
-                    <input
-                      type="number" step="any"
-                      placeholder="Ej. -100.40379"
-                      value={formData.longitude}
-                      onChange={e => setFormData({ ...formData, longitude: e.target.value })}
-                      style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-800)", background: "var(--white)", outline: "none", boxSizing: "border-box" }}
-                      onFocus={e => { e.target.style.borderColor = "var(--blue-400)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,.12)"; }}
-                      onBlur={e => { e.target.style.borderColor = "var(--border)"; e.target.style.boxShadow = "none"; }}
-                    />
-                  </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>Latitud</label>
+                  <input value={formData.latitude} readOnly disabled style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-400)", background: "var(--gray-100)", outline: "none", boxSizing: "border-box", cursor: "not-allowed" }} />
                 </div>
-              )}
-
-              {isEditing && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>Latitud</label>
-                    <input value={formData.latitude} readOnly disabled style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-400)", background: "var(--gray-100)", outline: "none", boxSizing: "border-box", cursor: "not-allowed" }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>Longitud</label>
-                    <input value={formData.longitude} readOnly disabled style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-400)", background: "var(--gray-100)", outline: "none", boxSizing: "border-box", cursor: "not-allowed" }} />
-                  </div>
+                <div>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>Longitud</label>
+                  <input value={formData.longitude} readOnly disabled style={{ width: "100%", padding: "10px 14px", border: "1.5px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", fontFamily: "var(--font-sans)", color: "var(--gray-400)", background: "var(--gray-100)", outline: "none", boxSizing: "border-box", cursor: "not-allowed" }} />
                 </div>
-              )}
+              </div>
 
-              {isEditing && actual && (
+              {actual && (
                 <div>
                   <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--gray-600)", textTransform: "uppercase", letterSpacing: ".4px", display: "block", marginBottom: 5 }}>Imagen</label>
                   <ImageUploader
@@ -433,11 +372,9 @@ const Gestion_Ubicaciones: React.FC = () => {
                 </div>
               )}
 
-              {isEditing && (
-                <p style={{ fontSize: "0.76rem", color: "var(--gray-400)", background: "var(--gray-50)", border: "1px solid var(--gray-200)", padding: "8px 12px", borderRadius: "var(--radius-sm)", margin: 0 }}>
-                  📍 Las coordenadas no se pueden modificar desde el dashboard.
-                </p>
-              )}
+              <p style={{ fontSize: "0.76rem", color: "var(--gray-400)", background: "var(--gray-50)", border: "1px solid var(--gray-200)", padding: "8px 12px", borderRadius: "var(--radius-sm)", margin: 0 }}>
+                📍 Las coordenadas no se pueden modificar desde el dashboard.
+              </p>
 
               {modalError && (
                 <p style={{ color: "var(--red-600)", fontSize: "0.84rem", margin: 0, padding: "8px 12px", background: "var(--red-50)", border: "1px solid rgba(220,38,38,.15)", borderRadius: "var(--radius-sm)" }}>
@@ -459,7 +396,7 @@ const Gestion_Ubicaciones: React.FC = () => {
                 disabled={saving}
                 style={{ background: "var(--blue-600)", color: "#fff", border: "none", padding: "9px 22px", borderRadius: "var(--radius-sm)", fontSize: "0.875rem", fontWeight: 600, cursor: saving ? "not-allowed" : "pointer", fontFamily: "var(--font-sans)", opacity: saving ? .55 : 1 }}
               >
-                {saving ? "Guardando…" : isEditing ? "Actualizar" : "Guardar"}
+                {saving ? "Guardando…" : "Actualizar"}
               </button>
             </div>
           </div>

@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import "../../styles/EdificiosRutas.css";
 import NavSpAdmin from "../components/NavSpAdmin";
-import { Pencil, Trash2, Plus, X, Search, LayoutGrid } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Search, LayoutGrid, FileDown } from "lucide-react";
 import { API_URL } from "../../api/config";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
 import ImageUploader from "../../components/ImageUploader";
 import api from "../../api/axios";
+import { exportEspaciosPDF } from "../../utils/pdfExport";
 
 interface Destino { _id: string; nombre: string; }
 interface Espacio {
@@ -180,11 +181,23 @@ const Espacios: React.FC = () => {
 
       <div className="spadmin-main-content">
         {/* ── Header ── */}
-        <header className="spadmin-topbar">
+        <header className="spadmin-topbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <h1>Gestión de Espacios</h1>
             <p>{espacios.length} aula(s) y espacio(s) registrado(s)</p>
           </div>
+          <button
+            onClick={() => exportEspaciosPDF(espaciosFiltrados)}
+            title="Descargar PDF"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: "var(--radius-sm)",
+              background: "#e53e3e", color: "#fff", border: "none",
+              cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+            }}
+          >
+            <FileDown size={15} /> Descargar PDF
+          </button>
         </header>
 
         <div className="spadmin-content-area">

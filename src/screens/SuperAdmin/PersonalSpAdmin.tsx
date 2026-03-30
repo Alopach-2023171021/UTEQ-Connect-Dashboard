@@ -6,12 +6,14 @@ import {
   Mail, Phone, Building2, MapPin, User,
   LayoutGrid, List, Ban, CheckCircle,
   Briefcase, GraduationCap, Wrench, Star,
-  ShieldCheck, UserCheck,
+  ShieldCheck, UserCheck, FileDown,
 } from "lucide-react";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
 import ImageUploader from "../../components/ImageUploader";
+import { getUserById, updateUser, deleteUser } from "../../api/users";
+import { exportPersonalPDF } from "../../utils/pdfExport";
 
 /* ─── Tipos ─── */
 interface Personal {
@@ -31,6 +33,7 @@ interface Personal {
   rol: "user" | "admin" | "superadmin";
   userId?: string;
   imagenPerfil?: string | null;
+  imagenHorario?: string | null;
 }
 
 interface FormData {
@@ -48,7 +51,7 @@ interface FormData {
   estatus: "activo" | "inactivo";
   rol: "admin" | "superadmin";
   // acceso
-  tipoCuenta: "user" | "admin" | "none";
+  tipoCuenta: "user" | "admin" | "superadmin" | "none";
 }
 
 const EMPTY_FORM: FormData = {
@@ -122,11 +125,13 @@ const PersonalSpAdmin: React.FC = () => {
   const confirmar = (msg: string, fn: () => void) => { setConfirmMsg(msg); setConfirmFn(() => fn); setConfirmOpen(true); };
   const [uploadingImg, setUploadingImg]         = useState(false);
   const [imagenPendiente, setImagenPendiente]   = useState<File | null>(null);
+  const [imagenHorarioPendiente, setImagenHorarioPendiente] = useState<File | null>(null);
   const [modalError, setModalError]           = useState("");
   const [formData, setFormData]               = useState<FormData>(EMPTY_FORM);
   const [tabActivo, setTabActivo]             = useState(0);
   const [showCuentaModal, setShowCuentaModal] = useState(false);
   const [pendingForm, setPendingForm]         = useState<FormData | null>(null);
+  const [userActual, setUserActual]           = useState<any | null>(null);
 
   const fetchPersonal = async () => {
     setLoading(true); setError("");
@@ -160,8 +165,23 @@ const PersonalSpAdmin: React.FC = () => {
     setFormData(EMPTY_FORM); setModalError(""); setTabActivo(0); setShowModal(true);
   };
 
-  const abrirEditar = (p: Personal) => {
-    setModoEdicion(true); setActual(p);
+  const abrirEditar = async (p: Personal) => {
+    setModoEdicion(true);
+    setActual(p);
+    setUserActual(null);
+    let tipoCuenta: "user" | "admin" | "superadmin" | "none" = "none";
+    if (p.userId) {
+      try {
+        const res = await getUserById(p.userId);
+        if (res.success) {
+          const user = res.data;
+          setUserActual(user);
+          tipoCuenta = user.rol;
+        }
+      } catch (err) {
+        console.warn("Error fetching user:", err);
+      }
+    }
     setFormData({
       numeroEmpleado: p.numeroEmpleado, nombre: p.nombre,
       apellidoPaterno: p.apellidoPaterno, apellidoMaterno: p.apellidoMaterno,
@@ -169,8 +189,8 @@ const PersonalSpAdmin: React.FC = () => {
       departamento: p.departamento, cargo: p.cargo,
       cubiculo: p.cubiculo || "", planta: p.planta || "",
       fechaIngreso: p.fechaIngreso ? p.fechaIngreso.split("T")[0] : "",
-      estatus: p.estatus, rol: (p.rol === "superadmin" ? "superadmin" : "admin") as "admin" | "superadmin",
-      tipoCuenta: (p.rol === "admin" || p.rol === "superadmin") ? "admin" : "user",
+      estatus: p.estatus, rol: p.rol as "admin" | "superadmin",
+      tipoCuenta,
     });
     setModalError(""); setTabActivo(0); setShowModal(true);
   };
@@ -183,6 +203,7 @@ const PersonalSpAdmin: React.FC = () => {
     setModoEdicion(false);
     setActual(null);
     setImagenPendiente(null);
+    setImagenHorarioPendiente(null);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -217,12 +238,60 @@ const PersonalSpAdmin: React.FC = () => {
     setSaving(true); setModalError("");
     try {
       if (modoEdicion && actual) {
+        const tipoCuentaAnterior = !actual.userId ? "none" : (userActual?.rol || "none");
+        const tipoCuentaNuevo = data.tipoCuenta;
+        let userId = actual.userId;
+
+        if (tipoCuentaAnterior === "none" && tipoCuentaNuevo !== "none") {
+          // Crear cuenta
+          try {
+            const passwordInicial = data.numeroEmpleado.length >= 6
+              ? data.numeroEmpleado
+              : `${data.numeroEmpleado}@ITQ`;
+            const resUser = await api.post("/auth/register-admin", {
+              nombre: `${data.nombre} ${data.apellidoPaterno}`,
+              email: data.email,
+              password: passwordInicial,
+              rol: tipoCuentaNuevo,
+            });
+            userId = resUser.data?.data?.user?._id
+                  || resUser.data?.data?._id
+                  || resUser.data?._id
+                  || null;
+          } catch (authErr: any) {
+            console.warn("Error al crear cuenta:", authErr?.response?.data);
+            setModalError("Personal actualizado, pero no se pudo crear la cuenta de acceso. Puedes crearla después desde Usuarios.");
+          }
+        } else if (tipoCuentaAnterior !== "none" && tipoCuentaNuevo === "none") {
+          // Eliminar cuenta
+          if (actual.userId) {
+            try {
+              await deleteUser(actual.userId);
+              userId = undefined;
+            } catch (delErr: any) {
+              console.warn("Error al eliminar cuenta:", delErr?.response?.data);
+              setModalError("Personal actualizado, pero no se pudo eliminar la cuenta de acceso.");
+            }
+          }
+        } else if (tipoCuentaAnterior !== "none" && tipoCuentaNuevo !== "none" && tipoCuentaAnterior !== tipoCuentaNuevo) {
+          // Cambiar rol
+          if (actual.userId) {
+            try {
+              await updateUser(actual.userId, { rol: tipoCuentaNuevo });
+            } catch (updErr: any) {
+              console.warn("Error al cambiar rol:", updErr?.response?.data);
+              setModalError("Personal actualizado, pero no se pudo cambiar el rol de la cuenta.");
+            }
+          }
+        }
+
         await api.put(`/personal/${actual._id}`, {
           nombre: data.nombre, apellidoPaterno: data.apellidoPaterno,
           apellidoMaterno: data.apellidoMaterno, email: data.email,
           telefono: data.telefono, departamento: data.departamento,
           cargo: data.cargo, cubiculo: data.cubiculo, planta: data.planta,
           fechaIngreso: data.fechaIngreso, estatus: data.estatus, rol: data.rol,
+          ...(userId !== undefined ? { userId } : {}),
         });
       } else {
         let userId: string | null = null;
@@ -239,6 +308,7 @@ const PersonalSpAdmin: React.FC = () => {
               email: data.email,
               password: passwordInicial,
               rol: data.tipoCuenta,            // "user" o "admin"
+              requiereCambioPassword: data.tipoCuenta === "admin" || data.tipoCuenta === "superadmin",
             });
             // El backend devuelve: { data: { user: { _id }, token } }
             userId = resUser.data?.data?.user?._id
@@ -271,6 +341,15 @@ const PersonalSpAdmin: React.FC = () => {
           } catch { /* imagen no crítica, se puede subir después */ }
           setImagenPendiente(null);
         }
+        // Si hay imagen de horario pendiente, subirla
+        if (nuevoId && imagenHorarioPendiente) {
+          try {
+            const fd = new FormData();
+            fd.append("image", imagenHorarioPendiente);
+            await api.put(`/personal/${nuevoId}/schedule-image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+          } catch { /* imagen no crítica, se puede subir después */ }
+          setImagenHorarioPendiente(null);
+        }
       }
       setShowCuentaModal(false);
       cerrarModal();
@@ -294,15 +373,42 @@ const PersonalSpAdmin: React.FC = () => {
     } catch { /* silencioso */ }
   };
 
+  /* ── Imagen de horario de personal ── */
+  const subirImagenHorario = async (id: string, file: File) => {
+    setUploadingImg(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      await api.put(`/personal/${id}/schedule-image`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      fetchPersonal();
+    } catch {
+      setModalError("Error al subir la imagen de horario.");
+    } finally {
+      setUploadingImg(false);
+    }
+  };
+
+  const eliminarImagenHorario = async (id: string) => {
+    setUploadingImg(true);
+    try {
+      await api.delete(`/personal/${id}/schedule-image`);
+      fetchPersonal();
+    } catch {
+      setModalError("Error al eliminar la imagen de horario.");
+    } finally {
+      setUploadingImg(false);
+    }
+  };
+
   /* ── Imagen de perfil de personal ── */
   const subirImagenPersonal = async (id: string, file: File) => {
     setUploadingImg(true);
     try {
       const fd = new FormData();
       fd.append("image", file);
-      await api.put(`/personal/${id}/profile-image`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.put(`/personal/${id}/profile-image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       fetchPersonal();
     } catch {
       setModalError("Error al subir la imagen.");
@@ -361,6 +467,18 @@ const PersonalSpAdmin: React.FC = () => {
             </div>
             <button className="btn-agregar-personal" onClick={abrirAgregar}>
               <Plus size={16} /> Agregar Personal
+            </button>
+            <button
+              onClick={() => exportPersonalPDF(personalFiltrado)}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar PDF
             </button>
           </div>
 
@@ -588,6 +706,29 @@ const PersonalSpAdmin: React.FC = () => {
                     <label>Cubículo / Oficina</label>
                     <input name="cubiculo" placeholder="Ej: K-14" value={formData.cubiculo} onChange={handleChange}/>
                   </div>
+                  <div className="form-group full">
+                    <label>Imagen de horario (opcional)</label>
+                    <ImageUploader
+                      shape="rect"
+                      size={220}
+                      currentImage={modoEdicion && actual?.imagenHorario ? actual.imagenHorario : (imagenHorarioPendiente ? URL.createObjectURL(imagenHorarioPendiente) : null)}
+                      onUpload={async (file) => {
+                        if (modoEdicion && actual) {
+                          await subirImagenHorario(actual._id, file);
+                        } else {
+                          setImagenHorarioPendiente(file);
+                        }
+                      }}
+                      onDelete={async () => {
+                        if (modoEdicion && actual) {
+                          await eliminarImagenHorario(actual._id);
+                        } else {
+                          setImagenHorarioPendiente(null);
+                        }
+                      }}
+                      placeholder="Subir imagen de horario"
+                    />
+                  </div>
                   {modoEdicion && (
                   <div className="form-group">
                     <label>Estatus</label>
@@ -711,28 +852,40 @@ const PersonalSpAdmin: React.FC = () => {
                         </div>
                       </label>
 
+                      {/* Opción: Super Administrador */}
+                      <label
+                        style={{
+                          flex: 1, minWidth: 140, display: "flex", alignItems: "center", gap: 12,
+                          border: `2px solid ${formData.tipoCuenta === "superadmin" ? "#ef4444" : "var(--gray-200, #e5e7eb)"}`,
+                          borderRadius: 10, padding: "12px 14px", cursor: "pointer",
+                          background: formData.tipoCuenta === "superadmin" ? "rgba(239,68,68,0.06)" : "transparent",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <input
+                          type="radio" name="tipoCuenta" value="superadmin"
+                          checked={formData.tipoCuenta === "superadmin"}
+                          onChange={handleChange}
+                          style={{ display: "none" }}
+                        />
+                        <div style={{
+                          width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                          background: formData.tipoCuenta === "superadmin" ? "rgba(239,68,68,0.12)" : "var(--gray-100, #f3f4f6)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: formData.tipoCuenta === "superadmin" ? "#ef4444" : "var(--gray-400)",
+                        }}>
+                          <Star size={18}/>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: "0.88rem", color: "var(--gray-800, #1f2937)" }}>Super Administrador</p>
+                          <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--gray-400)", marginTop: 2 }}>
+                            Control total del sistema.
+                          </p>
+                        </div>
+                      </label>
+
                     </div>
                   </div>
-
-                  {/* Preview de credenciales solo si se seleccionó un tipo de cuenta */}
-                  {formData.tipoCuenta !== "none" && (
-                    <div className="form-group full">
-                      <label>Credenciales iniciales</label>
-                      <div style={{ background: "var(--gray-50, #f9fafb)", border: "1px solid var(--gray-200, #e5e7eb)", borderRadius: 8, padding: "12px 14px", fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div> <strong>Usuario:</strong> {formData.email || <em style={{ color: "var(--gray-400)" }}>completa el correo en Datos personales</em>}</div>
-                        <div> <strong>Contraseña inicial:</strong> {
-                          formData.numeroEmpleado
-                            ? (formData.numeroEmpleado.length >= 6 ? formData.numeroEmpleado : `${formData.numeroEmpleado}@ITQ`)
-                            : <em style={{ color: "var(--gray-400)" }}>completa el n° de empleado en Laboral</em>
-                        }</div>
-                        {formData.tipoCuenta === "admin" && (
-                          <div style={{ marginTop: 4, fontSize: "0.78rem", color: "#8b5cf6", display: "flex", alignItems: "center", gap: 4 }}>
-                            <ShieldCheck size={12}/> Se pedirá cambio de contraseña en el primer inicio de sesión.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {formData.tipoCuenta !== "none" && (!formData.email || !formData.numeroEmpleado) && (
                     <div className="form-group full">

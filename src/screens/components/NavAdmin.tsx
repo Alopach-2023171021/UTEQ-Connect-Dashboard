@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../../styles/NavAdmin.css";
 import profile from "../../assets/Perfil.png";
-import ThemeToggle from "../ThemeToggle";
+import ThemeToggle from "../../components/ThemeToggle";
 import {
   MapPin, Calendar,
   BarChart3, LogOut, ChevronLeft, ChevronRight,
@@ -71,7 +71,6 @@ const NavAdmin: React.FC = () => {
           <UserCog size={18} />
           {!collapsed && <span>Personal</span>}
         </button>
-
 
         <button className={isActive("/admin/metricas") ? "active" : ""} onClick={() => navigate("/admin/metricas")}>
           <BarChart3 size={18} />

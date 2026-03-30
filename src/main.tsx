@@ -9,21 +9,30 @@ import { ThemeProvider } from "./context/ThemeContext";
    SERVICE WORKER + NOTIFICACIONES
 ============================ */
 
-if ('serviceWorker' in navigator) {
+// Solo registrar SW en producción, no en desarrollo (permite hot reload)
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', async () => {
     try {
-      await navigator.serviceWorker.register('/sw.js');
+      const reg = await navigator.serviceWorker.register('/sw.js');
       console.log('Service Worker registrado correctamente');
+
+      // Escuchar cuando hay una nueva versión disponible
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        console.log('Nueva versión del SW disponible');
+        
+        newWorker?.addEventListener('statechange', () => {
+          if (newWorker.state === 'activated') {
+            console.log('Recargando para aplicar nueva versión...');
+            window.location.reload();
+          }
+        });
+      });
 
       // Pedir permiso para notificaciones
       if ('Notification' in window) {
         await Notification.requestPermission();
       }
-
-      // Escuchar cuando hay una nueva versión del SW lista
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
-      });
 
     } catch (error) {
       console.error('Error al registrar el Service Worker:', error);

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import "../../styles/Usuarios.css";
 import NavSpAdmin from "../components/NavSpAdmin";
-import { Pencil, Ban, Trash2, Plus, X, CheckCircle, Search } from "lucide-react";
+import { Pencil, Ban, Trash2, Plus, X, CheckCircle, Search, FileDown } from "lucide-react";
 import api from "../../api/axios";
+import { exportUsuariosPDF } from "../../utils/pdfExport";
 
 interface Usuario {
   _id: string;
@@ -115,7 +116,7 @@ const Usuarios: React.FC = () => {
           email: formData.email,
           password: formData.password,
           rol: formData.rol,
-          requiereCambioPassword: formData.rol === "admin",
+          requiereCambioPassword: formData.rol === "admin" || formData.rol === "superadmin",
         });
       }
       cerrarModal(); fetchUsuarios();
@@ -219,6 +220,18 @@ const Usuarios: React.FC = () => {
 
             <button className="btn-agregarS" onClick={abrirAgregar} style={{ marginLeft: "auto" }}>
               <Plus size={16} /> Agregar Usuario
+            </button>
+            <button
+              onClick={() => exportUsuariosPDF(usuariosFiltrados, "superadmin")}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar PDF
             </button>
           </div>
 

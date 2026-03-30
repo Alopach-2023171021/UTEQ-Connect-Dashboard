@@ -37,4 +37,3 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({ className = "", showLabel = t
 };
 
 export default ThemeToggle;
-

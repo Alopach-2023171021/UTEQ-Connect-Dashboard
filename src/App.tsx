@@ -18,6 +18,8 @@ import PersonalSpAdmin from "./screens/SuperAdmin/PersonalSpAdmin";
 import Espacios from "./screens/SuperAdmin/Espacios";
 import Perfil from "./screens/Perfil";
 import CambioPassword from "./screens/CambioPassword";
+import InscritosEvento from "./screens/SuperAdmin/InscritosEvento";
+import InscritosEventoAdmin from "./screens/Admin/InscritosEvento";
 
 /* ── Guard: verifica token y rol antes de mostrar la ruta ── */
 const RequireAuth = ({ rol, children }: { rol?: string; children: React.ReactElement }) => {
@@ -40,22 +42,23 @@ function App() {
       <Route path="/admin"             element={<RequireAuth rol="admin"><InicioAdmin /></RequireAuth>} />
       <Route path="/admin/ubicaciones" element={<RequireAuth rol="admin"><Gestion_Ubicaciones /></RequireAuth>} />
       <Route path="/admin/eventos"     element={<RequireAuth rol="admin"><GestionEventos /></RequireAuth>} />
+      <Route path="/admin/inscritos/:id"   element={<RequireAuth rol="admin"><InscritosEventoAdmin /></RequireAuth>} />
       <Route path="/admin/metricas"    element={<RequireAuth rol="admin"><PanelMetricasEventos /></RequireAuth>} />
       <Route path="/admin/usuarios"    element={<RequireAuth rol="admin"><UsuarioA /></RequireAuth>} />
       <Route path="/admin/personal"    element={<RequireAuth rol="admin"><PersonalAdmin /></RequireAuth>} />
       <Route path="/admin/perfil"      element={<RequireAuth rol="admin"><Perfil /></RequireAuth>} />
 
       {/* ── SuperAdmin ── */}
-      <Route path="/admin-sp"                element={<RequireAuth rol="superadmin"><InicioSpAdmin /></RequireAuth>} />
-      <Route path="/admin-sp/usuarios"       element={<RequireAuth rol="superadmin"><Usuarios /></RequireAuth>} />
+      <Route path="/admin-sp"                 element={<RequireAuth rol="superadmin"><InicioSpAdmin /></RequireAuth>} />
+      <Route path="/admin-sp/usuarios"        element={<RequireAuth rol="superadmin"><Usuarios /></RequireAuth>} />
       <Route path="/admin-sp/edificios-rutas" element={<RequireAuth rol="superadmin"><EdificiosRutas /></RequireAuth>} />
-      <Route path="/admin-sp/eventos"        element={<RequireAuth rol="superadmin"><Eventos /></RequireAuth>} />
-      <Route path="/admin-sp/logs"           element={<RequireAuth rol="superadmin"><Logs /></RequireAuth>} />
-      <Route path="/admin-sp/espacios"       element={<RequireAuth rol="superadmin"><Espacios /></RequireAuth>} />
-      <Route path="/admin-sp/reportes"       element={<RequireAuth rol="superadmin"><Reportes /></RequireAuth>} />
-      <Route path="/admin-sp/personal"       element={<RequireAuth rol="superadmin"><PersonalSpAdmin /></RequireAuth>} />
-      <Route path="/admin-sp/perfil"         element={<RequireAuth rol="superadmin"><Perfil /></RequireAuth>} />
-
+      <Route path="/admin-sp/eventos"         element={<RequireAuth rol="superadmin"><Eventos /></RequireAuth>} />
+      <Route path="/admin-sp/inscritos/:id"   element={<RequireAuth rol="superadmin"><InscritosEvento /></RequireAuth>} />
+      <Route path="/admin-sp/logs"            element={<RequireAuth rol="superadmin"><Logs /></RequireAuth>} />
+      <Route path="/admin-sp/espacios"        element={<RequireAuth rol="superadmin"><Espacios /></RequireAuth>} />
+      <Route path="/admin-sp/reportes"        element={<RequireAuth rol="superadmin"><Reportes /></RequireAuth>} />
+      <Route path="/admin-sp/personal"        element={<RequireAuth rol="superadmin"><PersonalSpAdmin /></RequireAuth>} />
+      <Route path="/admin-sp/perfil"          element={<RequireAuth rol="superadmin"><Perfil /></RequireAuth>} />
 
       {/* ── Fallback ── */}
       <Route path="*" element={<Navigate to="/login" replace />} />

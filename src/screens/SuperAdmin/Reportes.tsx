@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/Reportes.css";
 import NavSpAdmin from "../components/NavSpAdmin";
-import { Users, Map, Calendar, UserCheck } from "lucide-react";
+import { Users, Map, Calendar, UserCheck, FileDown } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import api from "../../api/axios";
+import { exportReportesPDF } from "../../utils/pdfExport";
 
 const COLORS = ["#2563eb", "#16a34a", "#d97706", "#7c3aed"];
 
@@ -53,8 +54,22 @@ const Reportes: React.FC = () => {
     <div className="reportes-container">
       <NavSpAdmin />
       <div className="reportes-main">
-        <header className="reportes-header">
+        <header className="reportes-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h1>Monitoreo y Reportes del Sistema</h1>
+          {!loading && !error && (
+            <button
+              onClick={() => exportReportesPDF(totales)}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar Reporte PDF
+            </button>
+          )}
         </header>
         <div className="reportes-content">
           {error && <p style={{ color: "var(--red-600)", background: "var(--red-50)", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.875rem" }}>{error}</p>}

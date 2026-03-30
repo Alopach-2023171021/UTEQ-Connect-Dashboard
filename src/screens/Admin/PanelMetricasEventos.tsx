@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/PanelMetricasEventos.css";
 import NavAdmin from "../components/NavAdmin";
-import { BarChart3, Users, CalendarCheck, TrendingUp } from "lucide-react";
+import { BarChart3, Users, CalendarCheck, TrendingUp, FileDown } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import api from "../../api/axios";
+import { exportMetricasEventosPDF } from "../../utils/pdfExport";
 
 interface Evento {
   _id: string;
@@ -76,8 +77,20 @@ const PanelMetricasEventos: React.FC = () => {
     <div className="met-admin-wrapper">
       <NavAdmin />
       <div className="met-main-panel">
-        <header className="met-topbar">
+        <header className="met-topbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h1>Panel de Métricas y Supervisión</h1>
+          <button
+            onClick={() => exportMetricasEventosPDF(stats)}
+            title="Descargar PDF"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: "var(--radius-sm)",
+              background: "#e53e3e", color: "#fff", border: "none",
+              cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+            }}
+          >
+            <FileDown size={15} /> Descargar PDF
+          </button>
         </header>
         <div className="met-content">
           {error && <p style={{ color: "var(--red-600)", background: "var(--red-50)", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.875rem" }}>{error}</p>}

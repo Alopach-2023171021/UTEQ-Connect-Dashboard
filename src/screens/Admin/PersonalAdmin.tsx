@@ -6,12 +6,14 @@ import {
   Mail, Phone, Building2, MapPin, User,
   LayoutGrid, List, Ban, CheckCircle,
   Briefcase, GraduationCap, Wrench, Star,
-  ShieldCheck, UserCheck,
+  ShieldCheck, FileDown,
 } from "lucide-react";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
 import ImageUploader from "../../components/ImageUploader";
+import { getUserById, updateUser, deleteUser } from "../../api/users";
+import { exportPersonalPDF } from "../../utils/pdfExport";
 
 /* ─── Tipos alineados al modelo del backend ─── */
 interface Personal {
@@ -30,6 +32,8 @@ interface Personal {
   estatus: "activo" | "inactivo";
   rol: "admin" | "superadmin";
   imagenPerfil?: string | null;
+  imagenHorario?: string | null;
+  userId?: string | null;
 }
 
 interface FormData {
@@ -47,7 +51,7 @@ interface FormData {
   fechaIngreso: string;
   estatus: "activo" | "inactivo";
   rol: "admin" | "superadmin";
-  tipoCuenta: "user" | "admin" | "none";
+  tipoCuenta: "admin" | "none";
 }
 
 const EMPTY_FORM: FormData = {
@@ -118,11 +122,13 @@ const PersonalAdmin: React.FC = () => {
   const confirmar = (msg: string, fn: () => void) => { setConfirmMsg(msg); setConfirmFn(() => fn); setConfirmOpen(true); };
   const [uploadingImg, setUploadingImg] = useState(false);
   const [imagenPendiente, setImagenPendiente] = useState<File | null>(null);
+  const [imagenHorarioPendiente, setImagenHorarioPendiente] = useState<File | null>(null);
   const [modalError, setModalError]   = useState("");
   const [formData, setFormData]       = useState<FormData>(EMPTY_FORM);
   const [tabActivo, setTabActivo]     = useState(0);
   const [showCuentaModal, setShowCuentaModal] = useState(false);
   const [pendingForm, setPendingForm]         = useState<FormData | null>(null);
+  const [userActual, setUserActual]           = useState<any | null>(null);
   const [pagina, setPagina]           = useState(1);
   const POR_PAGINA = 12;
 
@@ -162,8 +168,23 @@ const PersonalAdmin: React.FC = () => {
     setFormData(EMPTY_FORM); setModalError(""); setTabActivo(0); setShowModal(true);
   };
 
-  const abrirEditar = (p: Personal) => {
-    setModoEdicion(true); setActual(p);
+  const abrirEditar = async (p: Personal) => {
+    setModoEdicion(true);
+    setActual(p);
+    setUserActual(null);
+    let tipoCuenta: "admin" | "none" = "none";
+    if (p.userId) {
+      try {
+        const res = await getUserById(p.userId);
+        if (res.success) {
+          const user = res.data;
+          setUserActual(user);
+          tipoCuenta = user.rol === "admin" ? "admin" : "none"; // Solo admin, ya que no puede ver user ni superadmin
+        }
+      } catch (err) {
+        console.warn("Error fetching user:", err);
+      }
+    }
     setFormData({
       numeroEmpleado: p.numeroEmpleado, nombre: p.nombre,
       apellidoPaterno: p.apellidoPaterno, apellidoMaterno: p.apellidoMaterno,
@@ -172,7 +193,7 @@ const PersonalAdmin: React.FC = () => {
       cubiculo: p.cubiculo || "", planta: p.planta || "",
       fechaIngreso: p.fechaIngreso ? p.fechaIngreso.split("T")[0] : "",
       estatus: p.estatus, rol: p.rol,
-      tipoCuenta: (p.rol === "admin" || p.rol === "superadmin") ? "admin" : "user",
+      tipoCuenta,
     });
     setModalError(""); setTabActivo(0); setShowModal(true);
   };
@@ -218,8 +239,54 @@ const PersonalAdmin: React.FC = () => {
     setSaving(true); setModalError("");
     try {
       if (modoEdicion && actual) {
-        // Construir body con solo los campos del modelo (excluir password y tipoCuenta)
-        const body: Record<string, any> = {
+        const tipoCuentaAnterior = !actual.userId ? "none" : (userActual?.rol === "admin" ? "admin" : "none");
+        const tipoCuentaNuevo = data.tipoCuenta;
+        let userId = actual.userId;
+
+        if (tipoCuentaAnterior === "none" && tipoCuentaNuevo !== "none") {
+          // Crear cuenta
+          try {
+            const passwordInicial = data.numeroEmpleado.length >= 6
+              ? data.numeroEmpleado
+              : `${data.numeroEmpleado}@ITQ`;
+            const resUser = await api.post("/auth/register-admin", {
+              nombre: `${data.nombre} ${data.apellidoPaterno}`,
+              email: data.email,
+              password: passwordInicial,
+              rol: tipoCuentaNuevo,
+            });
+            userId = resUser.data?.data?.user?._id
+                  || resUser.data?.data?._id
+                  || resUser.data?._id
+                  || null;
+          } catch (authErr: any) {
+            console.warn("Error al crear cuenta:", authErr?.response?.data);
+            setModalError("Personal actualizado, pero no se pudo crear la cuenta de acceso. Puedes crearla después desde Usuarios.");
+          }
+        } else if (tipoCuentaAnterior !== "none" && tipoCuentaNuevo === "none") {
+          // Eliminar cuenta
+          if (actual.userId) {
+            try {
+              await deleteUser(actual.userId);
+              userId = undefined;
+            } catch (delErr: any) {
+              console.warn("Error al eliminar cuenta:", delErr?.response?.data);
+              setModalError("Personal actualizado, pero no se pudo eliminar la cuenta de acceso.");
+            }
+          }
+        } else if (tipoCuentaAnterior !== "none" && tipoCuentaNuevo !== "none" && tipoCuentaAnterior !== tipoCuentaNuevo) {
+          // Cambiar rol (solo de admin a admin, ya que solo puede admin)
+          if (actual.userId) {
+            try {
+              await updateUser(actual.userId, { rol: tipoCuentaNuevo });
+            } catch (updErr: any) {
+              console.warn("Error al cambiar rol:", updErr?.response?.data);
+              setModalError("Personal actualizado, pero no se pudo cambiar el rol de la cuenta.");
+            }
+          }
+        }
+
+        await api.put(`/personal/${actual._id}`, {
           numeroEmpleado: data.numeroEmpleado,
           nombre: data.nombre,
           apellidoPaterno: data.apellidoPaterno,
@@ -233,8 +300,8 @@ const PersonalAdmin: React.FC = () => {
           fechaIngreso: data.fechaIngreso,
           estatus: data.estatus,
           rol: data.rol,
-        };
-        await api.put(`/personal/${actual._id}`, body);
+          ...(userId !== undefined ? { userId } : {}),
+        });
       } else {
         let userId: string | null = null;
         if (crearCuenta && data.tipoCuenta !== "none") {
@@ -247,7 +314,7 @@ const PersonalAdmin: React.FC = () => {
               email: data.email,
               password: passwordInicial,
               rol: data.tipoCuenta,
-              requiereCambioPassword: data.tipoCuenta === "admin",
+              requiereCambioPassword: data.tipoCuenta === "admin" || data.tipoCuenta === "superadmin",
             });
             userId = resUser.data?.data?.user?._id || resUser.data?.data?._id || resUser.data?._id || null;
           } catch (authErr: any) {
@@ -280,6 +347,15 @@ const PersonalAdmin: React.FC = () => {
             await api.put(`/personal/${nuevoId}/profile-image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
           } catch { /* imagen no crítica */ }
           setImagenPendiente(null);
+        }
+        // Si hay imagen de horario pendiente, subirla
+        if (nuevoId && imagenHorarioPendiente) {
+          try {
+            const fd = new FormData();
+            fd.append("image", imagenHorarioPendiente);
+            await api.put(`/personal/${nuevoId}/schedule-image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+          } catch { /* imagen no crítica */ }
+          setImagenHorarioPendiente(null);
         }
       }
       setShowCuentaModal(false);
@@ -321,6 +397,27 @@ const PersonalAdmin: React.FC = () => {
       await api.delete(`/personal/${id}/profile-image`);
       fetchPersonal();
     } catch { setModalError("Error al eliminar la imagen."); }
+    finally { setUploadingImg(false); }
+  };
+
+  /* ── Imagen de horario ── */
+  const subirImagenHorario = async (id: string, file: File) => {
+    setUploadingImg(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      await api.put(`/personal/${id}/schedule-image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      fetchPersonal();
+    } catch { setModalError("Error al subir la imagen de horario."); }
+    finally { setUploadingImg(false); }
+  };
+
+  const eliminarImagenHorario = async (id: string) => {
+    setUploadingImg(true);
+    try {
+      await api.delete(`/personal/${id}/schedule-image`);
+      fetchPersonal();
+    } catch { setModalError("Error al eliminar la imagen de horario."); }
     finally { setUploadingImg(false); }
   };
 
@@ -366,6 +463,18 @@ const PersonalAdmin: React.FC = () => {
             </div>
             <button className="btn-agregar-personal" onClick={abrirAgregar}>
               <Plus size={16} /> Agregar Personal
+            </button>
+            <button
+              onClick={() => exportPersonalPDF(personalFiltrado)}
+              title="Descargar PDF"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 14px", borderRadius: "var(--radius-sm)",
+                background: "#e53e3e", color: "#fff", border: "none",
+                cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+              }}
+            >
+              <FileDown size={15} /> Descargar PDF
             </button>
           </div>
 
@@ -591,6 +700,29 @@ const PersonalAdmin: React.FC = () => {
                     <label>Cubículo / Oficina</label>
                     <input name="cubiculo" placeholder="Ej: K-14" value={formData.cubiculo} onChange={handleChange}/>
                   </div>
+                  <div className="form-group full">
+                    <label>Imagen de horario (opcional)</label>
+                    <ImageUploader
+                      shape="rect"
+                      size={220}
+                      currentImage={modoEdicion && actual?.imagenHorario ? actual.imagenHorario : (imagenHorarioPendiente ? URL.createObjectURL(imagenHorarioPendiente) : null)}
+                      onUpload={async (file) => {
+                        if (modoEdicion && actual) {
+                          await subirImagenHorario(actual._id, file);
+                        } else {
+                          setImagenHorarioPendiente(file);
+                        }
+                      }}
+                      onDelete={async () => {
+                        if (modoEdicion && actual) {
+                          await eliminarImagenHorario(actual._id);
+                        } else {
+                          setImagenHorarioPendiente(null);
+                        }
+                      }}
+                      placeholder="Subir imagen de horario"
+                    />
+                  </div>
                   {modoEdicion && (
                   <div className="form-group">
                     <label>Estatus</label>
@@ -607,16 +739,31 @@ const PersonalAdmin: React.FC = () => {
                 <div className="form-grid">
                   {modoEdicion ? (
                     <>
-                      <div className="form-group">
-                        <label>Rol del sistema</label>
-                        <select name="rol" value={formData.rol} onChange={handleChange}>
-                          <option value="admin">Administrador</option>
-                          <option value="superadmin">Super Administrador</option>
-                        </select>
+                      <div className="form-group full">
+                        <div className="form-info-box">
+                          <strong>🔐 Cuenta de acceso al dashboard</strong><br/>
+                          Elige el tipo de acceso que tendrá este personal. Si seleccionas "Ninguno", se guardará el registro sin cuenta de acceso.
+                        </div>
                       </div>
-                      <div className="form-group">
-                        <label>Contraseña (vacío = sin cambio)</label>
-                        <input type="password" name="password" placeholder="Dejar vacío para no cambiar" value={formData.password} onChange={handleChange} autoComplete="new-password"/>
+                      <div className="form-group full">
+                        <label>Tipo de cuenta</label>
+                        <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+                          {[
+                            { val: "none",  icon: <X size={18}/>,          label: "Ninguno",       desc: "Sin cuenta de acceso.",           color: "#6b7280", border: formData.tipoCuenta === "none"  ? "#6b7280" : "var(--gray-200)", bg: formData.tipoCuenta === "none"  ? "rgba(107,114,128,0.06)" : "transparent" },
+                            { val: "admin", icon: <ShieldCheck size={18}/>, label: "Administrador",  desc: "Gestiona eventos y ubicaciones.", color: "#8b5cf6", border: formData.tipoCuenta === "admin" ? "#8b5cf6" : "var(--gray-200)", bg: formData.tipoCuenta === "admin" ? "rgba(139,92,246,0.06)" : "transparent" },
+                          ].map(opt => (
+                            <label key={opt.val} style={{ flex: 1, minWidth: 130, display: "flex", alignItems: "center", gap: 10, border: `2px solid ${opt.border}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", background: opt.bg, transition: "all 0.15s" }}>
+                              <input type="radio" name="tipoCuenta" value={opt.val} checked={formData.tipoCuenta === opt.val} onChange={handleChange} style={{ display: "none" }} />
+                              <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: formData.tipoCuenta === opt.val ? `${opt.color}20` : "var(--gray-100)", display: "flex", alignItems: "center", justifyContent: "center", color: formData.tipoCuenta === opt.val ? opt.color : "var(--gray-400)" }}>
+                                {opt.icon}
+                              </div>
+                              <div>
+                                <p style={{ margin: 0, fontWeight: 600, fontSize: "0.88rem", color: "var(--gray-800)" }}>{opt.label}</p>
+                                <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--gray-400)", marginTop: 2 }}>{opt.desc}</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -632,7 +779,6 @@ const PersonalAdmin: React.FC = () => {
                         <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
                           {[
                             { val: "none",  icon: <X size={18}/>,          label: "Ninguno",       desc: "Sin cuenta de acceso.",           color: "#6b7280", border: formData.tipoCuenta === "none"  ? "#6b7280" : "var(--gray-200)", bg: formData.tipoCuenta === "none"  ? "rgba(107,114,128,0.06)" : "transparent" },
-                            { val: "user",  icon: <UserCheck size={18}/>,   label: "Usuario normal", desc: "Puede ver eventos y rutas.",       color: "#3b82f6", border: formData.tipoCuenta === "user"  ? "#3b82f6" : "var(--gray-200)", bg: formData.tipoCuenta === "user"  ? "rgba(59,130,246,0.06)"  : "transparent" },
                             { val: "admin", icon: <ShieldCheck size={18}/>, label: "Administrador",  desc: "Gestiona eventos y ubicaciones.", color: "#8b5cf6", border: formData.tipoCuenta === "admin" ? "#8b5cf6" : "var(--gray-200)", bg: formData.tipoCuenta === "admin" ? "rgba(139,92,246,0.06)" : "transparent" },
                           ].map(opt => (
                             <label key={opt.val} style={{ flex: 1, minWidth: 130, display: "flex", alignItems: "center", gap: 10, border: `2px solid ${opt.border}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", background: opt.bg, transition: "all 0.15s" }}>
@@ -712,11 +858,9 @@ const PersonalAdmin: React.FC = () => {
                 {pendingForm.cubiculo && <div><strong>Cubículo:</strong> {pendingForm.cubiculo}</div>}
               </div>
               {pendingForm.tipoCuenta !== "none" ? (
-                <div style={{ background: pendingForm.tipoCuenta === "admin" ? "rgba(139,92,246,0.06)" : "rgba(59,130,246,0.06)", border: `1px solid ${pendingForm.tipoCuenta === "admin" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)"}`, borderRadius: 8, padding: "12px 14px", fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: "12px 14px", fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                    {pendingForm.tipoCuenta === "admin"
-                      ? <><ShieldCheck size={15} color="#8b5cf6"/><strong style={{ color: "#8b5cf6" }}>Cuenta: Administrador</strong></>
-                      : <><UserCheck size={15} color="#3b82f6"/><strong style={{ color: "#3b82f6" }}>Cuenta: Usuario normal</strong></>}
+                    <ShieldCheck size={15} color="#8b5cf6"/><strong style={{ color: "#8b5cf6" }}>Cuenta: Administrador</strong>
                   </div>
                   <div><strong>Usuario:</strong> {pendingForm.email}</div>
                   <div><strong>Contraseña inicial:</strong> {pendingForm.numeroEmpleado.length >= 6 ? pendingForm.numeroEmpleado : `${pendingForm.numeroEmpleado}@ITQ`}</div>

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Camera, Trash2, Upload, X } from "lucide-react";
+import { Camera, Trash2, Upload } from "lucide-react";
 
 interface Props {
   currentImage?: string | null;
@@ -31,7 +31,6 @@ const ImageUploader: React.FC<Props> = ({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Mostrar preview local inmediato
     const reader = new FileReader();
     reader.onload = ev => setPreview(ev.target?.result as string);
     reader.readAsDataURL(file);

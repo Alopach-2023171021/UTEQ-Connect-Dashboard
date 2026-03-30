@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import "../../styles/EdificiosRutas.css";
 import NavSpAdmin from "../components/NavSpAdmin";
-import { Pencil, Trash2, Plus, X, Search, MapPin } from "lucide-react";
+import { Pencil, Trash2, X, Search, MapPin, FileDown } from "lucide-react";
 import ImageUploader from "../../components/ImageUploader";
 import { API_URL } from "../../api/config";
 import api from "../../api/axios";
 import ConfirmModal from "../../components/ConfirmModal";
 import Paginacion from "../../components/Paginacion";
+import { exportEdificiosPDF } from "../../utils/pdfExport";
 
 interface Destino {
   _id: string;
@@ -45,12 +46,11 @@ const EdificiosRutas: React.FC = () => {
   const [error, setError]       = useState("");
   const [busqueda, setBusqueda] = useState("");
 
-  const [showModal, setShowModal]     = useState(false);
-  const [modoEdicion, setModoEdicion] = useState(false);
-  const [actual, setActual]           = useState<Destino | null>(null);
-  const [formData, setFormData]       = useState<FormData>(EMPTY_FORM);
-  const [modalError, setModalError]   = useState("");
-  const [saving, setSaving]           = useState(false);
+  const [showModal, setShowModal]       = useState(false);
+  const [actual, setActual]              = useState<Destino | null>(null);
+  const [formData, setFormData]          = useState<FormData>(EMPTY_FORM);
+  const [modalError, setModalError]      = useState("");
+  const [saving, setSaving]              = useState(false);
   const [pagina, setPagina]           = useState(1);
   const POR_PAGINA = 10;
   const [confirmOpen, setConfirmOpen]   = useState(false);
@@ -58,7 +58,6 @@ const EdificiosRutas: React.FC = () => {
   const [confirmFn, setConfirmFn]       = useState<() => void>(() => () => {});
   const confirmar = (msg: string, fn: () => void) => { setConfirmMsg(msg); setConfirmFn(() => fn); setConfirmOpen(true); };
   const [uploadingImg, setUploadingImg] = useState(false);
-  const [imagenPendiente, setImagenPendiente] = useState<File | null>(null);
 
   const fetchDestinos = async () => {
     setLoading(true); setError("");
@@ -82,12 +81,8 @@ const EdificiosRutas: React.FC = () => {
 
   const destinosPagina = useMemo(() => destinosFiltrados.slice((pagina-1)*POR_PAGINA, pagina*POR_PAGINA), [destinosFiltrados, pagina]);
 
-  const abrirAgregar = () => {
-    setModoEdicion(false); setActual(null); setFormData(EMPTY_FORM); setModalError(""); setShowModal(true);
-  };
-
   const abrirEditar = (d: Destino) => {
-    setModoEdicion(true); setActual(d);
+    setActual(d);
     setFormData({ nombre: d.nombre, latitude: String(d.posicion.latitude), longitude: String(d.posicion.longitude) });
     setModalError(""); setShowModal(true);
   };
@@ -99,12 +94,6 @@ const EdificiosRutas: React.FC = () => {
 
   const validar = (): string | null => {
     if (!formData.nombre.trim()) return "El nombre es obligatorio.";
-    if (!modoEdicion) {
-      const lat = parseFloat(formData.latitude);
-      const lng = parseFloat(formData.longitude);
-      if (isNaN(lat) || lat < -90  || lat > 90)  return "Latitud inválida (−90 a 90).";
-      if (isNaN(lng) || lng < -180 || lng > 180) return "Longitud inválida (−180 a 180).";
-    }
     return null;
   };
 
@@ -139,28 +128,11 @@ const EdificiosRutas: React.FC = () => {
   const guardar = async () => {
     const err = validar();
     if (err) { setModalError(err); return; }
+    if (!actual) { setModalError("No hay edificio seleccionado para editar."); return; }
     setSaving(true); setModalError("");
-    const body = modoEdicion
-      ? JSON.stringify({ nombre: formData.nombre.trim() })
-      : JSON.stringify({
-          nombre: formData.nombre.trim(),
-          posicion: { latitude: parseFloat(formData.latitude), longitude: parseFloat(formData.longitude) },
-        });
+    const body = JSON.stringify({ nombre: formData.nombre.trim() });
     try {
-      if (modoEdicion && actual) {
-        await apiFetch(`/locations/${actual._id}`, { method: "PUT", body });
-      } else {
-        const resLoc = await apiFetch("/locations", { method: "POST", body });
-        const nuevoId = resLoc?.data?._id || resLoc?._id;
-        if (nuevoId && imagenPendiente) {
-          try {
-            const fd = new FormData();
-            fd.append("image", imagenPendiente);
-            await api.post(`/locations/${nuevoId}/image`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-          } catch { /* imagen no crítica */ }
-          setImagenPendiente(null);
-        }
-      }
+      await apiFetch(`/locations/${actual._id}`, { method: "PUT", body });
       cerrarModal(); fetchDestinos();
     } catch (e: any) {
       setModalError(e.message || "Error al guardar.");
@@ -186,11 +158,23 @@ const EdificiosRutas: React.FC = () => {
 
       <div className="spadmin-main-content">
         {/* ── Header ── */}
-        <header className="spadmin-topbar">
+        <header className="spadmin-topbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <h1>Gestión de Ubicaciones</h1>
             <p>{destinos.length} edificio(s) registrado(s)</p>
           </div>
+          <button
+            onClick={() => exportEdificiosPDF(destinos)}
+            title="Descargar PDF"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", borderRadius: "var(--radius-sm)",
+              background: "#e53e3e", color: "#fff", border: "none",
+              cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
+            }}
+          >
+            <FileDown size={15} /> Descargar PDF
+          </button>
         </header>
 
         <div className="spadmin-content-area">
@@ -218,9 +202,6 @@ const EdificiosRutas: React.FC = () => {
               {destinosFiltrados.length} de {destinos.length} ubicaciones
             </span>
 
-            <button className="edr-btn-agregar" onClick={abrirAgregar}>
-              <Plus size={16} /> Agregar Ubicación
-            </button>
           </div>
 
           {/* ── Error ── */}
@@ -311,7 +292,7 @@ const EdificiosRutas: React.FC = () => {
         <div className="modal-overlay">
           <div className="modal-container">
             <div className="modal-header">
-              <h3>{modoEdicion ? "Editar Ubicación" : "Agregar Ubicación"}</h3>
+              <h3>Editar Ubicación</h3>
               <button onClick={cerrarModal}><X size={18} /></button>
             </div>
             <div className="modal-body">
@@ -321,43 +302,28 @@ const EdificiosRutas: React.FC = () => {
                 <input name="nombre" placeholder="Ej. Biblioteca UTEQ" value={formData.nombre} onChange={handleChange} />
               </div>
 
-              {!modoEdicion && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label className="modal-label">Latitud *</label>
-                    <input name="latitude" placeholder="Ej. 20.65485" value={formData.latitude} onChange={handleChange} type="number" step="any" />
-                  </div>
-                  <div>
-                    <label className="modal-label">Longitud *</label>
-                    <input name="longitude" placeholder="Ej. -100.40379" value={formData.longitude} onChange={handleChange} type="number" step="any" />
-                  </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label className="modal-label">Latitud</label>
+                  <input
+                    value={formData.latitude}
+                    readOnly
+                    disabled
+                    style={{ background: "var(--gray-100, #f3f4f6)", color: "var(--gray-400)", cursor: "not-allowed" }}
+                  />
                 </div>
-              )}
-
-              {modoEdicion && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label className="modal-label">Latitud</label>
-                    <input
-                      value={formData.latitude}
-                      readOnly
-                      disabled
-                      style={{ background: "var(--gray-100, #f3f4f6)", color: "var(--gray-400)", cursor: "not-allowed" }}
-                    />
-                  </div>
-                  <div>
-                    <label className="modal-label">Longitud</label>
-                    <input
-                      value={formData.longitude}
-                      readOnly
-                      disabled
-                      style={{ background: "var(--gray-100, #f3f4f6)", color: "var(--gray-400)", cursor: "not-allowed" }}
-                    />
-                  </div>
+                <div>
+                  <label className="modal-label">Longitud</label>
+                  <input
+                    value={formData.longitude}
+                    readOnly
+                    disabled
+                    style={{ background: "var(--gray-100, #f3f4f6)", color: "var(--gray-400)", cursor: "not-allowed" }}
+                  />
                 </div>
-              )}
+              </div>
 
-              {modoEdicion && actual && (
+              {actual && (
                 <>
                   <p className="modal-hint">
                     📍 Las coordenadas no se pueden modificar desde el dashboard.
@@ -379,29 +345,12 @@ const EdificiosRutas: React.FC = () => {
                 </>
               )}
 
-              {!modoEdicion && (
-                <div>
-                  <label className="modal-label">Imagen <span style={{ fontWeight: 400 }}>(opcional)</span></label>
-                  <div style={{ marginTop: 6 }}>
-                    <ImageUploader
-                      currentImage={imagenPendiente ? URL.createObjectURL(imagenPendiente) : null}
-                      placeholder={<MapPin size={28} color="var(--blue-400)" />}
-                      onUpload={async (file) => setImagenPendiente(file)}
-                      onDelete={async () => setImagenPendiente(null)}
-                      uploading={false}
-                      shape="rect"
-                      size={120}
-                    />
-                  </div>
-                </div>
-              )}
-
               {modalError && <p className="modal-error">{modalError}</p>}
             </div>
             <div className="modal-footer">
               <button className="btn-cancelar" onClick={cerrarModal}>Cancelar</button>
               <button className="btn-guardar" onClick={guardar} disabled={saving}>
-                {saving ? "Guardando..." : modoEdicion ? "Actualizar" : "Guardar"}
+                {saving ? "Guardando..." : "Actualizar"}
               </button>
             </div>
           </div>

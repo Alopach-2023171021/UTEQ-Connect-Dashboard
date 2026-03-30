@@ -74,7 +74,7 @@ const LoginScreen: React.FC = () => {
 
   // Permitir login con Enter
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleLogin();
+    if (e.key === "Enter" && !loading) handleLogin();
   };
 
 
@@ -86,49 +86,74 @@ const LoginScreen: React.FC = () => {
       <div className="home-theme-toggle">
         <ThemeToggle showLabel={true} />
       </div>
+      <div className="home-theme-toggle">
+        <ThemeToggle showLabel={true} />
+      </div>
+
+      <button
+        className="back-button"
+        onClick={() => navigate("/")}
+        disabled={loading}
+        type="button"
+      >
+        ← Volver
+      </button>
       <div className="overlay">
         <div className="login-card">
-          <h2>Inicio de Sesión</h2>
+          <h2>Acceso al Sistema</h2>
+          <p className="login-subtitle">Ingresa tus credenciales para continuar</p>
+
+          {error && (
+            <div className="login-error" role="alert">
+              {error}
+            </div>
+          )}
 
           <div className="input-group">
-            <label>Correo electrónico</label>
+            <label htmlFor="email">Correo electrónico</label>
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(""); }}
               onKeyDown={handleKeyDown}
-              placeholder="correo@ejemplo.com"
+              placeholder="tu.correo@ejemplo.com"
               required
+              autoComplete="email"
+              disabled={loading}
             />
           </div>
 
           <div className="input-group">
-            <label>Contraseña</label>
+            <label htmlFor="password">Contraseña</label>
             <input
+              id="password"
               type="password"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(""); }}
               onKeyDown={handleKeyDown}
               placeholder="••••••••"
               required
+              autoComplete="current-password"
+              disabled={loading}
             />
           </div>
-
-          {error && (
-            <p style={{ color: "#ff6b6b", fontSize: "0.85rem", marginBottom: "8px" }}>
-              {error}
-            </p>
-          )}
 
           <button
             className="login-button"
             onClick={handleLogin}
             disabled={loading}
+            type="button"
           >
-            {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
+            {loading ? (
+              <>
+                <span style={{ marginRight: "8px" }}>⏳</span>
+                Iniciando sesión...
+              </>
+            ) : (
+              "Iniciar Sesión"
+            )}
           </button>
-
-
         </div>
       </div>
     </div>
