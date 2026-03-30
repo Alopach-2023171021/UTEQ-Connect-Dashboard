@@ -178,15 +178,28 @@ const InscritosEventoAdmin: React.FC = () => {
         } catch { showToast("Error al actualizar estado"); }
     };
 
-    /* ── Toggle asistencia local ── */
-    const toggleAsistencia = (invId: string, valor: string) => {
-        if (!esEventoMio) return;
-        setAsistenciaLocal(prev => ({
-            ...prev,
-            [invId]: prev[invId] === valor ? "pendiente" : valor,
-        }));
-    };
+    /* ── Actualizar asistencia local (sin guardar aún) ── */
+    const toggleAsistencia = async (invId: string, valor: string) => {
+        const nuevoEstado = asistenciaLocal[invId] === valor ? "pendiente" : valor;
 
+        setAsistenciaLocal(prev => ({ ...prev, [invId]: nuevoEstado }));
+
+        try {
+            const inv = invitaciones.find(i => i._id === invId);
+            const usuarioId = typeof inv?.usuario === "string"
+                ? inv.usuario
+                : inv?.usuario?._id;
+
+            await api.patch(`/events/${eventoSelId}/confirm-assistence/${usuarioId}`, {
+                estadoAsistencia: nuevoEstado
+            });
+            showToast("Asistencia actualizada ✓");
+        } catch {
+            showToast("Error al actualizar asistencia");
+            // Revertir si falla
+            setAsistenciaLocal(prev => ({ ...prev, [invId]: asistenciaLocal[invId] }));
+        }
+    };
     /* ── Guardar asistencia ── */
     const guardarAsistencia = async () => {
         if (!esEventoMio) return;
@@ -242,12 +255,12 @@ const InscritosEventoAdmin: React.FC = () => {
 
         const doc = new jsPDF({ unit: "mm", format: "a4" });
         const pw = doc.internal.pageSize.getWidth();
-        const BRAND_PRIMARY: [number,number,number]   = [0, 84, 166];
-        const BRAND_SECONDARY: [number,number,number] = [0, 153, 68];
-        const BRAND_WHITE: [number,number,number]     = [255, 255, 255];
-        const BRAND_DARK: [number,number,number]      = [30, 30, 50];
-        const BRAND_GRAY: [number,number,number]      = [100, 100, 110];
-        const BRAND_LIGHT: [number,number,number]     = [240, 242, 245];
+        const BRAND_PRIMARY: [number, number, number] = [0, 84, 166];
+        const BRAND_SECONDARY: [number, number, number] = [0, 153, 68];
+        const BRAND_WHITE: [number, number, number] = [255, 255, 255];
+        const BRAND_DARK: [number, number, number] = [30, 30, 50];
+        const BRAND_GRAY: [number, number, number] = [100, 100, 110];
+        const BRAND_LIGHT: [number, number, number] = [240, 242, 245];
 
         // ── Encabezado institucional ──
         doc.setFillColor(...BRAND_PRIMARY);
@@ -273,14 +286,14 @@ const InscritosEventoAdmin: React.FC = () => {
         doc.text(`Evento: ${eventoSel.titulo}`, 14, 44);
 
         // ── KPIs ──
-        const asistio    = invAsistencia.filter(i => i.estadoAsistencia === "asistio").length;
-        const noAsistio  = invAsistencia.filter(i => i.estadoAsistencia === "no_asistio").length;
-        const pct        = invAsistencia.length > 0 ? Math.round((asistio / invAsistencia.length) * 100) : 0;
+        const asistio = invAsistencia.filter(i => i.estadoAsistencia === "asistio").length;
+        const noAsistio = invAsistencia.filter(i => i.estadoAsistencia === "no_asistio").length;
+        const pct = invAsistencia.length > 0 ? Math.round((asistio / invAsistencia.length) * 100) : 0;
         const kpis = [
             { label: "Total Inscritos", value: invAsistencia.length },
-            { label: "Asistieron",      value: asistio },
-            { label: "No Asistió",      value: noAsistio },
-            { label: "% Asistencia",    value: `${pct}%` },
+            { label: "Asistieron", value: asistio },
+            { label: "No Asistió", value: noAsistio },
+            { label: "% Asistencia", value: `${pct}%` },
         ];
         let y = 52;
         const boxW = (pw - 28 - 3 * 4) / 4;
@@ -400,7 +413,7 @@ const InscritosEventoAdmin: React.FC = () => {
                 </div>
 
                 <div className="ins-content">
-                    
+
                     {tabEventos === "otros" && (
                         <div style={{
                             display: "flex", alignItems: "center", gap: 8,
@@ -480,7 +493,7 @@ const InscritosEventoAdmin: React.FC = () => {
                                             <span><Calendar size={12} />{formatFecha(eventoSel.fecha)}</span>
                                             <span><Clock size={12} />{eventoSel.horaInicio} – {eventoSel.horaFin}</span>
                                             <span><MapPin size={12} />{getNombreDestino(eventoSel.destino)}</span>
-                                            <span><Users size={12} />{eventoSel.cupos} Cupos</span>
+                                            <span><Users size={12} />{eventoSel.cuposDisponibles} Cupos</span>
                                         </div>
                                     </div>
                                 </div>

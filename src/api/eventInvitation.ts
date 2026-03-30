@@ -32,3 +32,17 @@ export const getAllInvitations = async (): Promise<Invitacion[]> => {
     return [];
   }
 };
+
+
+export const confirmAssistence = async (eventoId: string, userId: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_URL}/events/${eventoId}/confirm-assistence/${userId}`, {
+      method: 'PATCH',
+    });
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error('Error confirmando asistencia:', error);
+    return false;
+  }
+};

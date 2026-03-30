@@ -156,11 +156,26 @@ const InscritosEvento: React.FC = () => {
     };
 
     /* ── Actualizar asistencia local (sin guardar aún) ── */
-    const toggleAsistencia = (invId: string, valor: string) => {
-        setAsistenciaLocal(prev => ({
-            ...prev,
-            [invId]: prev[invId] === valor ? "pendiente" : valor,
-        }));
+    const toggleAsistencia = async (invId: string, valor: string) => {
+        const nuevoEstado = asistenciaLocal[invId] === valor ? "pendiente" : valor;
+
+        setAsistenciaLocal(prev => ({ ...prev, [invId]: nuevoEstado }));
+
+        try {
+            const inv = invitaciones.find(i => i._id === invId);
+            const usuarioId = typeof inv?.usuario === "string"
+                ? inv.usuario
+                : inv?.usuario?._id;
+
+            await api.patch(`/events/${eventoSelId}/confirm-assistence/${usuarioId}`, {
+                estadoAsistencia: nuevoEstado
+            });
+            showToast("Asistencia actualizada ✓");
+        } catch {
+            showToast("Error al actualizar asistencia");
+            // Revertir si falla
+            setAsistenciaLocal(prev => ({ ...prev, [invId]: asistenciaLocal[invId] }));
+        }
     };
 
     /* ── Guardar asistencia en batch ── */
