@@ -1,5 +1,5 @@
 
-const useRemoteApi = false;
+const useRemoteApi = true;
 
 let API_URL = '';
 
